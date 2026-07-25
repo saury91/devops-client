@@ -135,5 +135,7 @@ fn main() {
                     let _ = window.set_focus();
                 }
             }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app_handle, event);
         });
 }
