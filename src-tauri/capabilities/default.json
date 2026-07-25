@@ -12,6 +12,7 @@
     "core:tray:allow-set-show-menu-on-left-click",
     "core:menu:default",
     "core:event:default",
-    "core:event:allow-listen"
+    "core:event:allow-listen",
+    "updater:default"
   ]
 }

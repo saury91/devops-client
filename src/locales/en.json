@@ -43,5 +43,8 @@
   "error.serverError": "Server returned an error",
   "error.revoked": "Device has been revoked by admin.",
   "error.noServerUrl": "Please configure server URL in settings",
-  "error.ok": "OK"
+  "error.ok": "OK",
+
+  "update.found": "New version available",
+  "update.installing": "Installing update"
 }

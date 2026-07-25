@@ -22,6 +22,34 @@ var App = (function () {
     }, 3500);
   }
 
+  async function checkForUpdate() {
+    try {
+      var updater = await import('@tauri-apps/plugin-updater');
+      var process = await import('@tauri-apps/plugin-process');
+      var update = await updater.check();
+      if (update) {
+        showToast(I18n.t('update.found') + ' ' + update.version, 'info');
+        await update.downloadAndInstall(function (event) {
+          switch (event.event) {
+            case 'Started':
+              console.log('update download started', event.data.contentLength);
+              break;
+            case 'Progress':
+              console.log('update download progress', event.data.chunkLength);
+              break;
+            case 'Finished':
+              console.log('update download finished');
+              break;
+          }
+        });
+        showToast(I18n.t('update.installing'), 'info');
+        await process.relaunch();
+      }
+    } catch (e) {
+      console.error('Update check failed:', e);
+    }
+  }
+
   async function init() {
     // Init background animation (best-effort)
     try { Background.init(); } catch (_) {}
@@ -36,6 +64,9 @@ var App = (function () {
     }
 
     applyTranslations();
+
+    // Check for app updates in the background (best-effort)
+    checkForUpdate();
 
     // Window control buttons
     document.querySelectorAll('.btn-minimize').forEach(function (btn) {
