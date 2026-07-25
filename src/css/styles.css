@@ -602,17 +602,83 @@ hr { border: none; border-top: 1px solid rgba(100,116,139,0.1); margin: 14px 0; 
   opacity: 0.7;
   pointer-events: none;
 }
+
+/* Liquid slosh at the bottom of the timer ball, clipped to the circle */
+.ball-liquid {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  clip-path: circle(50% at 50% 50%);
+  pointer-events: none;
+  overflow: hidden;
+}
+.ball-liquid::before,
+.ball-liquid::after {
+  content: '';
+  position: absolute;
+  bottom: -10%;
+  left: -60%;
+  width: 220%;
+  height: 32%;
+  background: rgba(0, 229, 255, 0.35);
+  border-radius: 45%;
+  transform-origin: 50% 100%;
+  animation: liquid-wave 1.8s ease-in-out infinite alternate;
+}
+.ball-liquid::after {
+  background: rgba(0, 229, 255, 0.20);
+  border-radius: 48%;
+  animation: liquid-wave-slow 2.4s ease-in-out infinite alternate-reverse;
+}
+@keyframes liquid-wave {
+  0% { transform: translateX(-22%) rotate(-10deg); }
+  100% { transform: translateX(22%) rotate(10deg); }
+}
+@keyframes liquid-wave-slow {
+  0% { transform: translateX(18%) rotate(8deg); }
+  100% { transform: translateX(-18%) rotate(-8deg); }
+}
+
+/* Foam / bubbles on the liquid surface */
+.ball-foam {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.ball-foam span {
+  position: absolute;
+  bottom: 18%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 0 6px rgba(0, 229, 255, 0.45);
+  animation: foam-drift 1.5s ease-in-out infinite alternate;
+}
+.ball-foam span:nth-child(1) { left: 22%; bottom: 22%; animation-delay: 0s; }
+.ball-foam span:nth-child(2) { left: 36%; bottom: 16%; width: 4px; height: 4px; animation-delay: 0.3s; }
+.ball-foam span:nth-child(3) { left: 52%; bottom: 20%; width: 6px; height: 6px; animation-delay: 0.6s; }
+.ball-foam span:nth-child(4) { left: 68%; bottom: 15%; width: 4px; height: 4px; animation-delay: 0.9s; }
+.ball-foam span:nth-child(5) { left: 80%; bottom: 24%; width: 5px; height: 5px; animation-delay: 1.2s; }
+@keyframes foam-drift {
+  0% { transform: translate(0, 0) scale(1); opacity: 0.45; }
+  100% { transform: translate(10px, -8px) scale(1.25); opacity: 0.85; }
+}
+
 @keyframes ball-glow-breathe {
   0%, 100% { opacity: 0.4; transform: scale(1); }
   50% { opacity: 0.85; transform: scale(1.06); }
 }
-.ball-uptime { font-family: var(--font-mono); font-size: 0.95rem; color: var(--accent); font-weight: 600; letter-spacing: 0.04em; white-space: nowrap; transition: font-size 0.2s; }
+.ball-uptime { position: relative; z-index: 1; font-family: var(--font-mono); font-size: 0.95rem; color: var(--accent); font-weight: 600; letter-spacing: 0.04em; white-space: nowrap; transition: font-size 0.2s; }
 .ball-uptime.hours-2 { font-size: 0.78rem; }
 .ball-uptime.hours-3 { font-size: 0.62rem; }
 .ball-uptime .uptime-ms { font-size: 0.55rem; color: #F5A623; transition: font-size 0.2s; }
 .ball-uptime.hours-2 .uptime-ms { font-size: 0.45rem; }
 .ball-uptime.hours-3 .uptime-ms { font-size: 0.36rem; }
 .ball-label {
+  position: relative;
+  z-index: 1;
   font-family: var(--font-mono);
   font-size: 0.35rem;
   color: var(--text-dim);
