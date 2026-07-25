@@ -45,6 +45,7 @@ pub enum DeviceStatus {
     Error(String),
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn login_device(
     server_url: &str,
     username: &str,
@@ -146,7 +147,10 @@ pub async fn create_exchange_token(server_url: &str, token: &str) -> Result<Stri
         .build()
         .map_err(|e| e.to_string())?;
 
-    let url = format!("{}/api/auth/create-exchange-token", server_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/api/auth/create-exchange-token",
+        server_url.trim_end_matches('/')
+    );
 
     let resp = client
         .post(&url)

@@ -2,18 +2,37 @@
 var App = (function () {
   'use strict';
 
+  function showToast(message, type) {
+    var container = document.getElementById('toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'toast-container';
+      container.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none;';
+      document.body.appendChild(container);
+    }
+    var el = document.createElement('div');
+    var color = type === 'error' ? '#FF5E5B' : '#00E5FF';
+    el.style.cssText = 'padding:8px 14px;border-radius:6px;background:rgba(15,27,46,0.95);border:1px solid ' + color + ';color:' + color + ';font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,0.4);pointer-events:auto;opacity:0;transition:opacity 0.2s;';
+    el.textContent = message;
+    container.appendChild(el);
+    requestAnimationFrame(function () { el.style.opacity = '1'; });
+    setTimeout(function () {
+      el.style.opacity = '0';
+      setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 200);
+    }, 3500);
+  }
+
   async function init() {
-    // Init background animation
-    Background.init();
+    // Init background animation (best-effort)
+    try { Background.init(); } catch (_) {}
 
     // Default to Chinese, use system language only if it's explicitly supported
     try {
       var rustLang = await API.getLang();
-      // Only accept en if system is explicitly English; otherwise default zh
       var lang = (rustLang === 'en') ? 'en' : 'zh';
       await I18n.init(lang);
     } catch (_) {
-      await I18n.init('zh');
+      try { await I18n.init('zh'); } catch (_) {}
     }
 
     applyTranslations();
@@ -51,7 +70,7 @@ var App = (function () {
 
     // Listen for device revoked
     API.onRevoked(function () {
-      alert(I18n.t('error.revoked'));
+      showToast(I18n.t('error.revoked'), 'error');
       logout();
     });
 

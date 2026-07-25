@@ -13,11 +13,16 @@ fn get_system_uuid() -> String {
     #[cfg(target_os = "macos")]
     {
         if let Ok(o) = std::process::Command::new("sh")
-            .args(["-c", "system_profiler SPHardwareDataType 2>/dev/null | awk '/Hardware UUID/{print $NF}'"])
+            .args([
+                "-c",
+                "system_profiler SPHardwareDataType 2>/dev/null | awk '/Hardware UUID/{print $NF}'",
+            ])
             .output()
         {
             let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if !s.is_empty() && s != "unknown" { return s; }
+            if !s.is_empty() && s != "unknown" {
+                return s;
+            }
         }
     }
 
@@ -25,22 +30,32 @@ fn get_system_uuid() -> String {
     {
         // Try MachineGuid first (stable per OS install)
         if let Ok(o) = std::process::Command::new("reg")
-            .args(["query", r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography", "/v", "MachineGuid"])
+            .args([
+                "query",
+                r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography",
+                "/v",
+                "MachineGuid",
+            ])
             .output()
         {
             let s = String::from_utf8_lossy(&o.stdout);
             if let Some(line) = s.lines().find(|l| l.contains("REG_SZ")) {
                 let guid = line.split("REG_SZ").nth(1).unwrap_or("").trim().to_string();
-                if !guid.is_empty() { return guid; }
+                if !guid.is_empty() {
+                    return guid;
+                }
             }
         }
         // Fallback to wmic
         if let Ok(o) = std::process::Command::new("wmic")
-            .args(["csproduct", "get", "uuid"]).output()
+            .args(["csproduct", "get", "uuid"])
+            .output()
         {
             let s = String::from_utf8_lossy(&o.stdout);
             let uuid = s.lines().nth(1).unwrap_or("").trim().to_string();
-            if !uuid.is_empty() { return uuid; }
+            if !uuid.is_empty() {
+                return uuid;
+            }
         }
     }
 
@@ -49,7 +64,9 @@ fn get_system_uuid() -> String {
         // /etc/machine-id is the most stable identifier on systemd Linux
         if let Ok(id) = std::fs::read_to_string("/etc/machine-id") {
             let id = id.trim().to_string();
-            if !id.is_empty() && id.len() >= 32 { return id; }
+            if !id.is_empty() && id.len() >= 32 {
+                return id;
+            }
         }
         // Fallback: DMI product UUID
         if let Ok(o) = std::process::Command::new("sh")

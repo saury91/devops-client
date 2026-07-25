@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-DevOps Client — Tauri v2 桌面设备认证代理。作为 Web 后端服务的配套客户端，提供设备指纹注册、本地 HTTPS 代理、客户端心跳、安全打开 Web 工作台、系统托盘常驻和国际化（中/英）能力。
+DevOps Client — Tauri v2 桌面设备认证代理。作为 Web 后端服务的配套客户端，提供设备指纹注册、本地 HTTP 代理、客户端心跳、安全打开 Web 工作台、系统托盘常驻和国际化（中/英）能力。
 
 ---
 
@@ -10,12 +10,12 @@ DevOps Client — Tauri v2 桌面设备认证代理。作为 Web 后端服务的
 |---|------|
 | 壳 | Tauri v2 (Rust) |
 | UI | 纯 HTML/CSS/JS（WebView 渲染，无打包工具） |
-| HTTP 服务 | Axum + Rustls（本地 HTTPS） |
+| HTTP 服务 | Axum（本地 HTTP） |
 | HTTP 客户端 | Reqwest |
 | 设备指纹 | ed25519-dalek + SHA-256 |
 | 本地加密 | AES-256-GCM（`crypto.rs`，用于凭据本地保护） |
 | i18n | 自研（LazyLock + HashMap / JSON） |
-| 打包 | Tauri Bundler → DMG / MSI / AppImage |
+| 打包 | Tauri Bundler → DMG / MSI / AppImage / DEB |
 
 ---
 
@@ -43,17 +43,16 @@ src/                          # 前端（WebView UI）
 
 src-tauri/                    # Tauri Rust 后端
 ├── Cargo.toml
-├── tauri.conf.json           # 窗口、托盘、CSP 配置
+├── tauri.conf.json           # 窗口、托盘、CSP、打包目标
 └── src/
     ├── main.rs               # 入口：窗口、托盘、生命周期、全局快捷键
     ├── lib.rs                # 模块声明
     ├── commands.rs           # 全部 Tauri IPC 命令
     ├── state.rs              # ProxyState, HeartbeatState
-    ├── config.rs             # Config 结构体 + 读写（~/.devops-client/config.json）
+    ├── config.rs             # Config 结构体 + 读写（~/.devops-client/config.json，AES 加密）
     ├── fingerprint.rs        # ED25519 + SHA256 设备指纹
     ├── crypto.rs             # AES-256-GCM 本地加密/解密
-    ├── cert.rs               # 自签 CA + localhost TLS 证书
-    ├── proxy.rs              # Axum HTTPS 代理（/ping）
+    ├── proxy.rs              # Axum HTTP 本地代理（/ping）
     ├── auth.rs               # Reqwest HTTP 客户端 + 设备认证 API
     ├── error.rs              # AppError（带 i18n 消息）
     └── i18n.rs               # 语言检测 + 翻译表
@@ -91,11 +90,10 @@ just run        # 打开构建后的 App
 | `main.rs` | 入口：窗口创建、系统托盘、生命周期事件、窗口拖拽/关闭行为 |
 | `commands.rs` | 所有 `#[tauri::command]` IPC 处理器 |
 | `state.rs` | 状态管理：代理运行状态、心跳状态、当前 fingerprint |
-| `config.rs` | 配置读写：`~/.devops-client/config.json` |
+| `config.rs` | 配置读写：`~/.devops-client/config.json`（AES-256-GCM 加密） |
 | `fingerprint.rs` | 设备指纹：ED25519 密钥对 + SHA256 |
 | `crypto.rs` | 本地 AES-256-GCM 加密，密钥由机器 UUID + 用户名派生 |
-| `cert.rs` | 证书管理：CA 生成、localhost 证书、系统信任存储安装 |
-| `proxy.rs` | HTTPS 代理：启动/停止、可用端口查找、`/ping` 响应 |
+| `proxy.rs` | HTTP 本地代理：启动/停止、可用端口查找、`/ping` 响应 |
 | `auth.rs` | API 客户端：`login-device`、`auto-login`、`device-status`、`create-exchange-token`、`get-user-info` |
 | `error.rs` | 错误类型：带 i18n 消息的 AppError |
 | `i18n.rs` | 国际化：Lang 枚举、语言检测、翻译函数 |
@@ -105,9 +103,8 @@ just run        # 打开构建后的 App
 ```
 main()
   → 生成/读取设备指纹
-  → 生成/读取自签 CA 与 localhost 证书
   → 检测系统语言
-  → 创建主窗口（420×560，深色主题，无边框可拖拽）
+  → 创建主窗口（360×320，深色主题，无边框可拖拽）
   → 配置系统托盘（左键显示、菜单打开/退出）
   → 注册 IPC 命令
   → 前端加载 config.json，若有缓存 token 则尝试自动登录
@@ -119,8 +116,8 @@ main()
 UI 表单 → API.doLogin(url, user, pass, deviceName)
   → Rust POST /api/auth/login-device（携带 fingerprint、os、clientVersion、deviceInfo）
   → 成功:
-    → 保存 config.json（serverUrl、token、fingerprint、loginAt 等）
-    → 启动本地 HTTPS 代理 (127.0.0.1:{随机端口})
+    → 保存 config.json（serverUrl、token、fingerprint、loginAt 等，AES 加密）
+    → 启动本地 HTTP 代理 (127.0.0.1:{随机端口})
     → 启动心跳（每 10s POST /api/auth/device-status，Header X-Session-Id）
     → 切换到已连接面板
   → pending: 显示"需要管理员审批"
@@ -135,7 +132,7 @@ UI 表单 → API.doLogin(url, user, pass, deviceName)
   → 获取 exchangeToken
   → 系统浏览器打开 /api/auth/exchange-token?exchangeToken=...&port=...
   → 后端校验原 session → 新建浏览器独立 session → 写入 SESSION_ID cookie
-  → 按账号类型重定向：普通账号 → /dashboard，管理账号 → /
+  → 按账号类型重定向：普通账号 → /dashboard，管理账号 → /index
 ```
 
 点击期间设置 `_openingBrowser` 防抖，防止重复打开。
@@ -156,7 +153,7 @@ UI 表单 → API.doLogin(url, user, pass, deviceName)
 ### 安全模型
 
 1. 用户通过密码登录 → 服务端创建 session，客户端保存 token
-2. Agent 启动本地 HTTPS 服务器 → 浏览器通过 `fetch(http://127.0.0.1:{port}/ping)` 验证 agent 存在
+2. Agent 启动本地 HTTP 服务器 → 浏览器通过 `fetch(http://127.0.0.1:{port}/ping)` 验证 agent 存在
 3. 心跳持续上报 → 设备被撤销或服务端 session 失效时客户端立即退出
 4. Cookie 拷到其他机器 → 缺少本地 agent ping → 服务端触发 `/api/auth/device-offline` 并失效 session
 5. fingerprint 与 session 不匹配 → 双杀：当前 session 失效 + fingerprint 所属用户全部 session 失效
@@ -169,6 +166,21 @@ fingerprint = SHA256(raw) → 64 位小写 hex
 ```
 
 密钥持久化在 `~/.devops-client/device.key`（JSON: `{seed, pub}`）。
+
+---
+
+## 数据与配置
+
+所有本地数据位于 `~/.devops-client/`：
+
+```
+.devops-client/
+├── device.key          # ED25519 设备密钥（明文 JSON）
+└── config.json         # AES-256-GCM 加密缓存（非明文，请勿手动编辑）
+```
+
+- `config.json` 使用 AES-256-GCM 加密，密钥由机器 UUID + 当前用户名派生，换机器无法解密。
+- 如需迁移配置，必须重新登录。
 
 ---
 
@@ -196,11 +208,30 @@ let msg = i18n::t(lang, "login.failed");
 
 ---
 
+## 打包与跨平台
+
+- `tauri.conf.json` 中 `bundle.targets` 使用 `"all"`，CI 各平台会自动构建该平台支持的所有安装包。
+- macOS 本地构建：`just build`（ARM64）、`just build-mac-x64`（x64）。
+- Windows / Linux 构建需在对应平台（或 CI）运行。
+
+### macOS 图标缓存
+
+替换 `src-tauri/icons/` 后若 Dock/启动台仍显示旧图标：
+
+```bash
+rm -rf /private/var/folders/*/*/*/com.apple.dock.iconcache
+rm -rf /private/var/folders/*/*/*/com.apple.iconservices.store
+killall Dock
+killall Finder
+```
+
+---
+
 ## 注意事项
 
 - Public repo — 代码中**禁止**包含公司/服务器/内部信息
-- 服务器地址由用户手动输入，缓存于 `~/.devops-client/config.json`
-- 自签证书首次启动时写入系统信任存储（macOS 弹授权框）
+- 服务器地址由用户手动输入，加密缓存于 `~/.devops-client/config.json`
 - 关闭窗口 = 隐藏到托盘，只有托盘菜单"退出"才真正退出
 - 前端无打包工具，JS 通过全局变量（`API` / `I18n` / `App` / `LoginView` / `Panel` / `Wave` / `Background` / `AvatarUtil`）通信
 - 心跳与 proxy 必须在登录成功后启动，登出/连接丢失时务必停止，避免端口占用和无效请求
+- 本地代理使用纯 HTTP 并仅绑定 `127.0.0.1`，不对外提供服务，无需 TLS 证书

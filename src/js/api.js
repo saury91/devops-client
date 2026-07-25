@@ -46,14 +46,20 @@ var API = (function () {
     startHeartbeat: function (url, fp) { return invoke('start_heartbeat', { serverUrl: url, fingerprint: fp }); },
     stopHeartbeat: function ()       { return invoke('stop_heartbeat'); },
     onRevoked:     function (cb) {
-      if (window.__TAURI__ && window.__TAURI__.event) {
-        window.__TAURI__.event.listen('device-revoked', cb);
-      }
+      if (!window.__TAURI__ || !window.__TAURI__.event) return Promise.resolve(function () {});
+      if (this._unlistenRevoked) { this._unlistenRevoked(); }
+      return window.__TAURI__.event.listen('device-revoked', cb).then(function (unlisten) {
+        this._unlistenRevoked = unlisten;
+        return unlisten;
+      }.bind(this));
     },
     onConnectionLost: function (cb) {
-      if (window.__TAURI__ && window.__TAURI__.event) {
-        window.__TAURI__.event.listen('connection-lost', cb);
-      }
+      if (!window.__TAURI__ || !window.__TAURI__.event) return Promise.resolve(function () {});
+      if (this._unlistenLost) { this._unlistenLost(); }
+      return window.__TAURI__.event.listen('connection-lost', cb).then(function (unlisten) {
+        this._unlistenLost = unlisten;
+        return unlisten;
+      }.bind(this));
     },
     quit: function () {
       return invoke('quit_app');

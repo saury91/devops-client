@@ -1,38 +1,47 @@
 # DevOps Client
 
-基于 Tauri v2 的桌面设备认证代理。通过本地 HTTPS 服务、设备指纹绑定和客户端心跳，为 Web 端提供"仅在当前机器可用"的安全会话管理，并支持系统托盘常驻与中/英国际化。
+基于 Tauri v2 的桌面设备认证代理。客户端通过设备指纹绑定、本地 HTTP 代理和心跳保活，与配套 Web 后端协同实现“仅在当前机器可用”的安全访问。
 
-## 工作原理
-
-```
-用户登录 → 服务端注册/校验设备指纹 → 客户端启动本地 HTTPS 代理
-                                              ↓
-浏览器端 → fetch('http://127.0.0.1:{port}/ping')
-  → 成功 → 请求来自受信任机器 → 保持 Web 会话可用
-  → 失败 → Cookie 被复制到其他机器或客户端已关闭 → 失效会话
-```
-
-客户端同时维护与服务端的心跳：
+## 客户端流程
 
 ```
-每 10 秒 POST /api/auth/device-status
-  → fingerprint 与 session 匹配 → 续期同指纹所有 session
-  → fingerprint 不匹配 → 立即失效当前 session 并踢掉该设备用户
-  → 连续 3 次失败 → 触发 connection-lost，客户端返回登录页
+登录/自动登录
+  → 服务端返回 session token
+  → 客户端加密保存配置（serverUrl、token、loginAt 等）
+  → 启动本地 HTTP 代理（127.0.0.1 随机端口，/ping）
+  → 启动 10 秒心跳
+  → 进入已连接面板
 ```
+
+点击面板“工作台”圆球时：
+
+```
+申请 exchange-token
+  → 系统浏览器打开 /api/auth/exchange-token?...
+  → 服务端写入浏览器专属 cookie
+  → 浏览器加载 Web 工作台
+```
+
+本地 HTTP 代理仅监听 `127.0.0.1`，不对外暴露，用于让浏览器验证桌面 Agent 真实存在。
+
+心跳根据服务端返回状态执行不同动作：
+
+- `Active` / `Pending`：失败计数清零
+- `Revoked`：提示“设备已被撤销”并退出应用
+- `SESSION_INVALID` / `FINGERPRINT_MISMATCH`：立即返回登录页
+- 其他错误/网络异常：累计失败，达到 3 次后返回登录页
 
 ---
 
 ## 功能特性
 
-- **设备绑定安全** — ED25519 + SHA256 设备指纹，会话与物理机器绑定
-- **设备审批** — 新设备首次登录可自动审批（首台）或进入管理员审批队列
-- **安全打开工作台** — 通过一次性 exchange-token 兑换独立浏览器 session
-- **客户端心跳** — 自动续期、设备撤销检测、三次失败退出
+- **设备绑定** — ED25519 + SHA256 生成设备指纹
+- **设备审批** — 新设备首次登录可自动审批（首台）或进入审批队列
+- **安全打开工作台** — 通过一次性 exchange-token 兑换浏览器 session
+- **客户端心跳** — 自动续期、撤销检测、三次失败回登录页
 - **国际化** — 中/英双语，根据系统 locale 自动检测
 - **系统托盘** — 关闭窗口后常驻后台，托盘菜单可快速打开/退出
 - **跨平台** — macOS（ARM64 / x64）、Windows（x64）、Linux（x64）
-- **自签 TLS** — 自动生成 CA 与 localhost 证书，并安装到系统信任存储
 
 ---
 
@@ -101,17 +110,16 @@ src/                            # 前端（WebView UI）
 
 src-tauri/                      # Tauri Rust 后端
 ├── Cargo.toml
-├── tauri.conf.json             # 窗口 420×560、托盘、CSP
+├── tauri.conf.json             # 窗口、托盘、CSP、打包目标
 └── src/
     ├── main.rs                 # 入口：窗口、托盘、生命周期
     ├── lib.rs                  # 模块声明
     ├── commands.rs             # 全部 Tauri IPC 命令
     ├── state.rs                # ProxyState, HeartbeatState
-    ├── config.rs               # Config 加载/保存
+    ├── config.rs               # Config 加载/保存（AES-256-GCM 加密）
     ├── fingerprint.rs          # ED25519 + SHA-256 设备指纹
     ├── crypto.rs               # AES-256-GCM 本地加密
-    ├── cert.rs                 # 自签 CA + localhost TLS
-    ├── proxy.rs                # Axum HTTPS 服务器（/ping）
+    ├── proxy.rs                # Axum HTTP 本地代理（/ping）
     ├── auth.rs                 # Reqwest HTTP 客户端（登录/心跳/换 token/用户信息）
     ├── error.rs                # AppError（带 i18n 消息）
     └── i18n.rs                 # 语言检测 + 翻译表
@@ -126,12 +134,10 @@ src-tauri/                      # Tauri Rust 后端
 ```
 .devops-client/
 ├── device.key          # ED25519 密钥对（JSON: seed + pub）
-├── config.json         # 缓存：serverUrl、token、fingerprint、loginAt 等
-└── certs/
-    ├── ca.pem          # 自签 CA（首次启动时安装到系统信任存储）
-    ├── localhost.pem   # 127.0.0.1 证书
-    └── localhost-key.pem
+└── config.json         # 加密缓存：serverUrl、token、fingerprint、loginAt 等
 ```
+
+`config.json` 使用 AES-256-GCM 加密存储，不是明文 JSON，请勿手动编辑。首次写入时由 `crypto.rs` 根据机器 UUID 与用户名派生密钥。
 
 ---
 
@@ -148,9 +154,9 @@ src-tauri/                      # Tauri Rust 后端
 | `do_login` | 调用 `/api/auth/login-device` 登录 |
 | `auto_login` | 使用 fingerprint 调用 `/api/auth/auto-login` |
 | `get_user_info` | 获取当前登录用户信息 |
-| `server_logout` | 调用服务端登出与 device-offline |
-| `start_proxy` | 启动本地 HTTPS 代理 |
-| `stop_proxy` | 停止本地 HTTPS 代理 |
+| `server_logout` | 调用服务端登出 |
+| `start_proxy` | 启动本地 HTTP 代理 |
+| `stop_proxy` | 停止本地 HTTP 代理 |
 | `get_proxy_port` | 获取当前代理端口 |
 | `open_browser` | 使用系统默认浏览器打开 URL |
 | `open_dashboard` | 申请 exchange-token 并打开工作台 |
@@ -166,7 +172,7 @@ src-tauri/                      # Tauri Rust 后端
 
 ## 国际化
 
-系统语言从环境变量（`LANG`、`AppleLocale`）自动检测，默认回退英文。
+系统语言从环境变量（`LANG`、`AppleLocale`）自动检测，默认回退中文。
 
 | 语言 | 代码 |
 |------|------|
@@ -180,35 +186,6 @@ src-tauri/                      # Tauri Rust 后端
 
 ---
 
-## 架构说明
-
-### 认证流程
-
-1. **首次/手动登录**：`do_login` → `/api/auth/login-device`
-2. **自动登录**：启动时若缓存了 fingerprint，调用 `/api/auth/auto-login` 换取新 token
-3. **打开工作台**：`open_dashboard` → `create-exchange-token` → 系统浏览器打开 `exchange-token` 端点
-4. **心跳续期**：`start_heartbeat` 每 10 秒 POST `/api/auth/device-status`
-
-### 心跳状态机
-
-```
-Active / Pending  → 失败计数清零
-Revoked           → 发送 device-revoked，退出应用
-SESSION_INVALID / FINGERPRINT_MISMATCH → 立即 connection-lost
-其他 Error / NotFound / 网络错误      → 失败计数 +1，达到 3 次后 connection-lost
-```
-
-### 指纹算法
-
-```
-raw = systemUUID + "/" + hostname + "/" + base64url(ed25519_pubkey)
-fingerprint = SHA256(raw) → 64 位小写 hex
-```
-
-身份标识持久化在 `~/.devops-client/device.key`。
-
----
-
 ## 平台支持
 
 | 平台 | 本地开发 | CI |
@@ -217,6 +194,26 @@ fingerprint = SHA256(raw) → 64 位小写 hex
 | macOS x86_64 | `just build-mac-x64` | ✓ |
 | Windows x86_64 | — | ✓ |
 | Linux x86_64 | — | ✓ |
+
+`tauri.conf.json` 中 `bundle.targets` 已配置为 `"all"`，各平台 CI 会自动构建当前平台支持的所有安装包格式。
+
+---
+
+## 常见问题
+
+### macOS 更新图标后仍显示旧图标
+
+macOS 会缓存应用图标。替换 `src-tauri/icons/` 并重新构建后，若 Dock/启动台仍显示旧图标，可执行：
+
+```bash
+# 1. 移除图标缓存
+rm -rf /private/var/folders/*/*/*/com.apple.dock.iconcache
+rm -rf /private/var/folders/*/*/*/com.apple.iconservices.store
+
+# 2. 重置 Dock 与 Finder
+killall Dock
+killall Finder
+```
 
 ---
 

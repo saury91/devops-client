@@ -10,7 +10,7 @@
   <canvas id="bg-canvas"></canvas>
 
   <!-- ============ Auto-login (shown only when a token exists) ============ -->
-  <div id="auto-login-view" class="view">
+  <div id="auto-login-view" class="view active">
     <div class="terminal-shell">
       <div class="term-titlebar" data-tauri-drag-region>
         <div class="win-actions">
@@ -91,16 +91,7 @@
           </div>
         </div>
 
-        <!-- Captcha -->
-        <div id="captcha-row" class="captcha-row">
-          <div class="form-group">
-            <label data-i18n="login.captcha">Captcha</label>
-            <div class="captcha-inner">
-              <input type="text" id="captcha-input" maxlength="6" placeholder="••••••" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
-              <div id="captcha-img" class="captcha-img"></div>
-            </div>
-          </div>
-        </div>
+        <!-- Captcha (reserved, not implemented yet) -->
 
         <!-- Submit -->
         <button id="login-btn" class="btn-scan">
@@ -173,8 +164,8 @@
         <!-- Tab: Log -->
         <div id="tab-log" class="panel-tab-content">
           <div class="log-header">
-            <span class="log-title">Event Log</span>
-            <button id="clear-log-btn" class="log-clear-btn">FLUSH</button>
+            <span class="log-title" data-i18n="panel.logTitle">Event Log</span>
+            <button id="clear-log-btn" class="log-clear-btn" data-i18n="panel.clearLog">FLUSH</button>
           </div>
           <div id="log-list" class="log-list"></div>
         </div>

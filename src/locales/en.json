@@ -1,6 +1,6 @@
 {
-  "login.title": "身份验证",
-  "login.subtitle": "请输入您的访问凭证以继续",
+  "login.title": "Authentication",
+  "login.subtitle": "Enter your credentials to continue",
   "login.username": "Username",
   "login.password": "Password",
   "login.captcha": "Captcha",
@@ -14,7 +14,7 @@
   "login.autoLoggingIn": "Auto logging in",
   "login.autoLoginFailed": "Auto login failed",
 
-  "panel.title": "DevOps",
+  "panel.title": "DevOps Client",
   "panel.connected": "CONNECTED",
   "panel.autoConnected": "DEVICE RECOGNIZED",
   "panel.server": "Server",
@@ -29,6 +29,8 @@
   "panel.loginTime": "Login",
   "panel.platform": "Platform",
   "panel.system": "System",
+  "panel.logTitle": "Event Log",
+  "panel.clearLog": "FLUSH",
 
   "settings.title": "Settings",
   "settings.serverUrl": "Server URL",
@@ -40,5 +42,6 @@
 
   "error.serverError": "Server returned an error",
   "error.revoked": "Device has been revoked by admin.",
-  "error.noServerUrl": "Please configure server URL in settings"
+  "error.noServerUrl": "Please configure server URL in settings",
+  "error.ok": "OK"
 }

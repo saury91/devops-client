@@ -40,7 +40,7 @@ pub fn detect_lang() -> Lang {
     Lang::Zh // Default to Chinese
 }
 
-pub fn t<'a>(lang: Lang, key: &'a str) -> &'a str {
+pub fn t(lang: Lang, key: &str) -> &str {
     let map: &HashMap<&str, &str> = match lang {
         Lang::En => &EN,
         Lang::Zh => &ZH,

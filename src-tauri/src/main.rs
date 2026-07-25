@@ -7,8 +7,7 @@ use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
 use devops_client::{
-    commands, fingerprint,
-    i18n,
+    commands, fingerprint, i18n,
     state::{HeartbeatState, ProxyState},
 };
 

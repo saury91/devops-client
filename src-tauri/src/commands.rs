@@ -9,69 +9,107 @@ use crate::config::{load_config, save_config, Config};
 
 fn get_hardware_info() -> String {
     let mut info = serde_json::Map::new();
-    info.insert("hostname".into(), serde_json::Value::String(
-        hostname::get().map(|h| h.to_string_lossy().to_string()).unwrap_or_default()
-    ));
+    info.insert(
+        "hostname".into(),
+        serde_json::Value::String(
+            hostname::get()
+                .map(|h| h.to_string_lossy().to_string())
+                .unwrap_or_default(),
+        ),
+    );
 
     if cfg!(target_os = "macos") {
         if let Ok(out) = std::process::Command::new("sysctl")
-            .args(["-n", "hw.model"]).output()
+            .args(["-n", "hw.model"])
+            .output()
         {
-            info.insert("model".into(), serde_json::Value::String(
-                String::from_utf8_lossy(&out.stdout).trim().to_string()
-            ));
+            info.insert(
+                "model".into(),
+                serde_json::Value::String(String::from_utf8_lossy(&out.stdout).trim().to_string()),
+            );
         }
         if let Ok(out) = std::process::Command::new("sysctl")
-            .args(["-n", "machdep.cpu.brand_string"]).output()
+            .args(["-n", "machdep.cpu.brand_string"])
+            .output()
         {
-            info.insert("cpu".into(), serde_json::Value::String(
-                String::from_utf8_lossy(&out.stdout).trim().to_string()
-            ));
+            info.insert(
+                "cpu".into(),
+                serde_json::Value::String(String::from_utf8_lossy(&out.stdout).trim().to_string()),
+            );
         }
         if let Ok(out) = std::process::Command::new("sysctl")
-            .args(["-n", "hw.memsize"]).output()
+            .args(["-n", "hw.memsize"])
+            .output()
         {
-            let bytes: u64 = String::from_utf8_lossy(&out.stdout).trim().parse().unwrap_or(0);
-            info.insert("memory".into(), serde_json::Value::String(
-                format!("{} GB", bytes / 1024 / 1024 / 1024)
-            ));
+            let bytes: u64 = String::from_utf8_lossy(&out.stdout)
+                .trim()
+                .parse()
+                .unwrap_or(0);
+            info.insert(
+                "memory".into(),
+                serde_json::Value::String(format!("{} GB", bytes / 1024 / 1024 / 1024)),
+            );
         }
         if let Ok(out) = std::process::Command::new("sh")
-            .args(["-c", "df -h / | tail -1 | awk '{print $2\", \"$4\" free\"}'"]).output()
+            .args([
+                "-c",
+                "df -h / | tail -1 | awk '{print $2\", \"$4\" free\"}'",
+            ])
+            .output()
         {
-            info.insert("disk".into(), serde_json::Value::String(
-                String::from_utf8_lossy(&out.stdout).trim().to_string()
-            ));
+            info.insert(
+                "disk".into(),
+                serde_json::Value::String(String::from_utf8_lossy(&out.stdout).trim().to_string()),
+            );
         }
     } else if cfg!(target_os = "windows") {
         if let Ok(out) = std::process::Command::new("wmic")
-            .args(["computersystem", "get", "model"]).output()
+            .args(["computersystem", "get", "model"])
+            .output()
         {
             let s = String::from_utf8_lossy(&out.stdout).to_string();
             let lines: Vec<&str> = s.lines().collect();
-            if lines.len() > 1 { info.insert("model".into(), serde_json::Value::String(lines[1].trim().to_string())); }
+            if lines.len() > 1 {
+                info.insert(
+                    "model".into(),
+                    serde_json::Value::String(lines[1].trim().to_string()),
+                );
+            }
         }
         if let Ok(out) = std::process::Command::new("wmic")
-            .args(["cpu", "get", "name"]).output()
+            .args(["cpu", "get", "name"])
+            .output()
         {
             let s = String::from_utf8_lossy(&out.stdout).to_string();
             let lines: Vec<&str> = s.lines().collect();
-            if lines.len() > 1 { info.insert("cpu".into(), serde_json::Value::String(lines[1].trim().to_string())); }
+            if lines.len() > 1 {
+                info.insert(
+                    "cpu".into(),
+                    serde_json::Value::String(lines[1].trim().to_string()),
+                );
+            }
         }
     } else {
         if let Ok(out) = std::process::Command::new("sh")
-            .args(["-c", "cat /proc/cpuinfo | grep 'model name' | head -1 | cut -d: -f2"]).output()
+            .args([
+                "-c",
+                "cat /proc/cpuinfo | grep 'model name' | head -1 | cut -d: -f2",
+            ])
+            .output()
         {
-            info.insert("cpu".into(), serde_json::Value::String(
-                String::from_utf8_lossy(&out.stdout).trim().to_string()
-            ));
+            info.insert(
+                "cpu".into(),
+                serde_json::Value::String(String::from_utf8_lossy(&out.stdout).trim().to_string()),
+            );
         }
         if let Ok(out) = std::process::Command::new("sh")
-            .args(["-c", "free -h | grep Mem | awk '{print $2}'"]).output()
+            .args(["-c", "free -h | grep Mem | awk '{print $2}'"])
+            .output()
         {
-            info.insert("memory".into(), serde_json::Value::String(
-                String::from_utf8_lossy(&out.stdout).trim().to_string()
-            ));
+            info.insert(
+                "memory".into(),
+                serde_json::Value::String(String::from_utf8_lossy(&out.stdout).trim().to_string()),
+            );
         }
     }
 
@@ -133,14 +171,27 @@ pub async fn do_login(
 ) -> Result<serde_json::Value, String> {
     let fp = fingerprint::get_or_create_fingerprint();
     let lang = i18n::detect_lang();
-    let os = if cfg!(target_os = "macos") { "macOS" }
-             else if cfg!(target_os = "windows") { "Windows" }
-             else { "Linux" };
+    let os = if cfg!(target_os = "macos") {
+        "macOS"
+    } else if cfg!(target_os = "windows") {
+        "Windows"
+    } else {
+        "Linux"
+    };
     let device_info = get_hardware_info();
-    let result = auth::login_device(&server_url, &username, &password, &fp.value, &device_name,
-                                     os, std::env::consts::OS, env!("CARGO_PKG_VERSION"), &device_info)
-        .await
-        .map_err(|e| i18n::t(lang, "login.connFailed").to_string() + ": " + &e)?;
+    let result = auth::login_device(
+        &server_url,
+        &username,
+        &password,
+        &fp.value,
+        &device_name,
+        os,
+        std::env::consts::OS,
+        env!("CARGO_PKG_VERSION"),
+        &device_info,
+    )
+    .await
+    .map_err(|e| i18n::t(lang, "login.connFailed").to_string() + ": " + &e)?;
 
     if result.code != 200 {
         return Err(result.msg);
@@ -176,7 +227,10 @@ pub async fn get_user_info(server_url: String, token: String) -> Result<serde_js
 }
 
 #[tauri::command]
-pub async fn auto_login(server_url: String, fingerprint: String) -> Result<serde_json::Value, String> {
+pub async fn auto_login(
+    server_url: String,
+    fingerprint: String,
+) -> Result<serde_json::Value, String> {
     let resp = auth::auto_login(&server_url, &fingerprint).await?;
     if resp.code != 200 {
         return Err(resp.msg);
@@ -282,9 +336,7 @@ pub fn start_heartbeat(
     heartbeat_state.running.store(true, Ordering::SeqCst);
 
     let heartbeat_state = heartbeat_state.inner().clone();
-    let token = load_config()
-        .map(|c| c.token)
-        .unwrap_or_default();
+    let token = load_config().map(|c| c.token).unwrap_or_default();
 
     let running = Arc::new(AtomicBool::new(true));
     let running_clone = running.clone();
@@ -354,7 +406,8 @@ pub fn start_heartbeat(
 #[tauri::command]
 pub fn resize_window(app_handle: AppHandle, width: f64, height: f64) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("main") {
-        window.set_size(tauri::LogicalSize::new(width, height))
+        window
+            .set_size(tauri::LogicalSize::new(width, height))
             .map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -388,9 +441,7 @@ pub fn start_drag(window: tauri::WebviewWindow) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn stop_heartbeat(
-    heartbeat_state: State<'_, Arc<HeartbeatState>>,
-) -> Result<(), String> {
+pub fn stop_heartbeat(heartbeat_state: State<'_, Arc<HeartbeatState>>) -> Result<(), String> {
     heartbeat_state.running.store(false, Ordering::SeqCst);
     Ok(())
 }
