@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-DevOps Client — Tauri v2 桌面设备认证代理。作为 `fw-devops` 后端的配套客户端，提供设备指纹注册、本地 HTTPS 代理、客户端心跳、安全打开 Web 工作台、系统托盘常驻和国际化（中/英）能力。
+DevOps Client — Tauri v2 桌面设备认证代理。作为 Web 后端服务的配套客户端，提供设备指纹注册、本地 HTTPS 代理、客户端心跳、安全打开 Web 工作台、系统托盘常驻和国际化（中/英）能力。
 
 ---
 
