@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DevOps</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <canvas id="bg-canvas"></canvas>
+
+  <!-- ============ Auto-login (shown only when a token exists) ============ -->
+  <div id="auto-login-view" class="view">
+    <div class="terminal-shell">
+      <div class="term-titlebar" data-tauri-drag-region>
+        <div class="win-actions">
+          <button class="tb-btn tb-close btn-hide" title="Hide">×</button>
+          <button class="tb-btn tb-min btn-minimize" title="Minimize">−</button>
+        </div>
+        <span class="term-title">auto_terminal.exe</span>
+        <div class="term-spacer"></div>
+      </div>
+      <div class="auto-login-body">
+        <div class="auto-login-content">
+          <div class="splash-avatar-orb">
+            <div class="splash-ring ring-1"></div>
+            <div class="splash-ring ring-2"></div>
+            <div class="splash-ring ring-3"></div>
+            <div class="splash-scan"></div>
+            <div class="splash-avatar-wrap">
+              <img id="auto-login-avatar" class="splash-avatar" src="" alt="" style="display:none" />
+              <div id="auto-login-avatar-fallback" class="splash-avatar-fallback">-</div>
+            </div>
+          </div>
+          <div id="auto-login-nick" class="splash-nick">-</div>
+          <div class="splash-status">
+            <span class="splash-dot"></span>
+            <span data-i18n="login.autoLoggingIn">自动登录中</span><span class="splash-dots"></span><span class="splash-cursor">_</span>
+          </div>
+          <div id="auto-login-error" class="splash-error"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Login (also logout landing) ============ -->
+  <div id="login-view" class="view">
+    <div class="terminal-shell">
+      <!-- Window controls + title (macOS order: close, minimize) -->
+      <div class="term-titlebar" data-tauri-drag-region>
+        <div class="win-actions">
+          <button class="tb-btn tb-close btn-hide" title="Hide">×</button>
+          <button class="tb-btn tb-min btn-minimize" title="Minimize">−</button>
+        </div>
+        <span class="term-title">auth_terminal.exe</span>
+        <div class="term-spacer"></div>
+      </div>
+
+      <!-- Body -->
+      <div class="term-body">
+        <button id="gear-btn" class="term-gear">&#9881;</button>
+        <div class="term-prompt">
+          <span class="dollar">$</span><span class="cmd">login --init</span>
+        </div>
+        <div class="term-heading" data-i18n="login.title">身份验证</div>
+        <div class="term-sub" data-i18n="login.subtitle">请输入您的访问凭证以继续</div>
+
+        <!-- Username -->
+        <div class="form-group">
+          <label>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span data-i18n="login.username">Username</span>
+          </label>
+          <div class="input-wrap corner-accent">
+            <input type="text" id="user-input" placeholder="root" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+          </div>
+        </div>
+
+        <!-- Password -->
+        <div class="form-group">
+          <label>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1"/></svg>
+            <span data-i18n="login.password">Password</span>
+          </label>
+          <div class="input-wrap corner-accent pw-wrap">
+            <input type="password" id="pass-input" placeholder="········" autocapitalize="off" autocorrect="off" spellcheck="false" />
+            <button id="toggle-pass" class="pw-eye" type="button">
+              <svg id="eye-off" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              <svg id="eye-on" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Captcha -->
+        <div id="captcha-row" class="captcha-row">
+          <div class="form-group">
+            <label data-i18n="login.captcha">Captcha</label>
+            <div class="captcha-inner">
+              <input type="text" id="captcha-input" maxlength="6" placeholder="••••••" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+              <div id="captcha-img" class="captcha-img"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Submit -->
+        <button id="login-btn" class="btn-scan">
+          <span class="shimmer"></span>
+          <span class="btn-text" data-i18n="login.signIn">SIGN IN</span>
+        </button>
+        <div id="msg-label" class="msg"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Panel ============ -->
+  <div id="panel-view" class="view">
+    <div class="terminal-shell panel-shell">
+      <!-- Window controls + title (macOS order: close, minimize) -->
+      <div class="term-titlebar panel-titlebar" data-tauri-drag-region>
+        <div class="win-actions">
+          <button class="tb-btn tb-close btn-close" title="Close">×</button>
+          <button class="tb-btn tb-min btn-minimize" title="Minimize">−</button>
+        </div>
+        <span class="term-title">agent_terminal.exe</span>
+        <div class="term-spacer"></div>
+      </div>
+
+      <div class="panel-body">
+        <!-- Top info bar: avatar + user / system info + actions -->
+        <div class="panel-infobar">
+          <div class="user-card">
+            <div class="avatar-wrap avatar-large">
+              <img id="p-avatar" class="avatar-img" src="" alt="" style="display:none" />
+              <div id="p-avatar-fallback" class="avatar-fallback">-</div>
+            </div>
+            <div class="user-info-stack">
+              <div class="info-line info-main">
+                <span id="p-nick" class="nick-val">-</span>
+              </div>
+              <div class="info-line info-sub">
+                <span data-i18n="panel.platform">平台</span>: <span id="p-platform">-</span>
+              </div>
+              <div class="info-line info-sub">
+                <span data-i18n="panel.loginTime">登录时间</span>: <span id="p-login-time">-</span>
+              </div>
+            </div>
+          </div>
+          <div class="panel-top-actions">
+            <button id="quit-btn-panel" class="btn-danger btn-sm" data-i18n="panel.quit">退出登录</button>
+          </div>
+        </div>
+        <hr/>
+
+        <!-- Tabs: 执行监控 / 日志 -->
+        <div class="panel-tabs">
+          <button class="panel-tab active" data-tab="wave" data-i18n="panel.tabWave">执行监控</button>
+          <button class="panel-tab" data-tab="log" data-i18n="panel.tabLog">日志</button>
+        </div>
+
+        <!-- Tab: Wave + Uptime -->
+        <div id="tab-wave" class="panel-tab-content active">
+          <div class="wave-wrap">
+            <canvas id="wave-canvas"></canvas>
+            <div class="monitor-ball" id="monitor-ball" title="打开工作台">
+              <div class="ball-uptime">
+                <span id="p-uptime-main">00:00:00</span><span id="p-uptime-ms" class="uptime-ms">.000</span>
+              </div>
+              <div class="ball-label" data-i18n="panel.openDashboard">工作台</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: Log -->
+        <div id="tab-log" class="panel-tab-content">
+          <div class="log-header">
+            <span class="log-title">Event Log</span>
+            <button id="clear-log-btn" class="log-clear-btn">FLUSH</button>
+          </div>
+          <div id="log-list" class="log-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Settings ============ -->
+  <div id="settings-overlay" class="overlay">
+    <div class="overlay-card">
+      <div class="overlay-header">
+        <h2 data-i18n="settings.title">SETTINGS</h2>
+        <button id="settings-close" class="close-btn">&times;</button>
+      </div><hr/>
+      <div class="form-group">
+        <label data-i18n="settings.serverUrl">Server URL</label>
+        <input type="text" id="settings-url" class="settings-input" placeholder="https://" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      </div>
+      <div class="form-group">
+        <label data-i18n="settings.language">Language</label>
+        <select id="lang-select">
+          <option value="zh" data-i18n="settings.langZh">中文</option>
+          <option value="en" data-i18n="settings.langEn">English</option>
+        </select>
+      </div>
+      <button id="settings-save" class="btn-scan"><span class="btn-text" data-i18n="settings.save">SAVE</span></button>
+    </div>
+  </div>
+
+  <script src="js/i18n.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/views/background.js"></script>
+  <script src="js/views/login.js"></script>
+  <script src="js/avatar.js"></script>
+  <script src="js/views/wave.js"></script>
+  <script src="js/views/panel.js"></script>
+  <script src="js/views/settings.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
