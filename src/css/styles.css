@@ -1,6 +1,6 @@
 /* ============================================
    DevOps Client — Terminal HUD Style
-   Fonts: Chakra Petch (heading) + JetBrains Mono (mono)
+   Fonts: Inter (body) + JetBrains Mono (mono)
    ============================================ */
 
 @font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('../fonts/inter-latin-400-normal.woff2') format('woff2'); }
@@ -20,7 +20,7 @@
   --danger: #FF5E5B;
   --success: #3BF4A0;
   --border: rgba(100,116,139,0.15);
-  --font-display: "Chakra Petch", "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", "Fira Code", monospace;
   font-size: 13px; font-family: var(--font-display); color: var(--text); background: transparent;
 }
@@ -86,8 +86,8 @@ body {
 .view#login-view .form-group { margin-bottom: 9px; }
 .view#login-view .form-group label { font-size: 0.45rem; margin-bottom: 4px; }
 .view#login-view .form-group label svg { width: 10px; height: 10px; }
-.view#login-view .input-wrap input { padding: 7px 9px 7px 5px; font-size: 0.55rem; }
-.view#login-view .btn-scan { padding: 7px 0; font-size: 0.5rem; margin-top: 6px; }
+.view#login-view .input-wrap input { padding: 10px 9px 10px 5px; font-size: 0.6rem; }
+.view#login-view .btn-scan { padding: 10px 0; font-size: 0.55rem; margin-top: 6px; }
 .view#login-view .msg { font-size: 0.45rem; }
 
 /* ===== Auto-login overlay reusable splash pieces ===== */
@@ -357,6 +357,15 @@ html.panel-active #bg-canvas { display: none; }
 }
 .term-gear:hover { color: var(--accent); border-color: var(--accent); transform: rotate(45deg); }
 
+/* Gear button inside titlebar — normal flex child, centered by parent */
+.titlebar-gear {
+  width: 22px; height: 22px; background: none; border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 50%; color: var(--text-muted); font-size: 11px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  transition: all 0.2s; -webkit-app-region: no-drag;
+}
+.titlebar-gear:hover { color: var(--accent); border-color: var(--accent); transform: rotate(45deg); }
+
 /* $ prompt */
 .term-prompt {
   display: flex; align-items: center; gap: 6px; margin-bottom: 14px;
@@ -449,7 +458,6 @@ html.panel-active #bg-canvas { display: none; }
 /* Scan shimmer */
 .btn-scan .btn-text { position: relative; z-index: 2; }
 
-/* Scan shimmer */
 .btn-scan.is-loading { pointer-events: none; border-color: rgba(0,229,255,0.6); }
 .btn-scan.is-loading::before { left: 0; opacity: 0.08; }
 .btn-scan .shimmer {
@@ -478,12 +486,6 @@ html.panel-active #bg-canvas { display: none; }
 .msg { text-align: center; min-height: 1.2em; font-size: 0.5rem; font-family: var(--font-mono); color: var(--danger); margin: 8px 0 0; }
 @keyframes glitch { 0%{transform:translate(0)} 20%{transform:translate(-2px,1px)} 40%{transform:translate(2px,-1px)} 60%{transform:translate(-1px,-1px)} 100%{transform:translate(0)} }
 .msg.error { animation: glitch 0.3s ease-out; }
-
-/* ---- Captcha ---- */
-.captcha-row { display: none; margin-top: 14px; }
-.captcha-inner { display: flex; gap: 8px; }
-.captcha-inner input { flex: 1; }
-.captcha-img { width: 80px; height: 40px; flex-shrink: 0; background: rgba(0,0,0,0.2); border: 1px solid rgba(100,116,139,0.15); border-radius: 2px; }
 
 /* ---- Settings Overlay ---- */
 .overlay { display: none; position: fixed; inset: 0; z-index: 200; background: rgba(11,17,32,0.8); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); align-items: center; justify-content: center; }
@@ -716,3 +718,60 @@ hr { border: none; border-top: 1px solid rgba(100,116,139,0.1); margin: 14px 0; 
 }
 .btn-danger.btn-sm { padding: 4px 8px; font-size: 0.5rem; width: auto; }
 .btn-danger:hover { background: rgba(255,94,91,0.15); }
+
+/* Logout icon button */
+.btn-quit-icon {
+  width: 26px; height: 26px; padding: 0; background: none;
+  border: 1px solid rgba(255,94,91,0.25); border-radius: 4px;
+  color: var(--danger); cursor: pointer; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s;
+}
+.btn-quit-icon:hover { background: rgba(255,94,91,0.12); }
+
+/* ---- Collapsible sections (device info / diagnostics) ---- */
+.panel-collapse-section { margin-bottom: 2px; }
+.panel-collapse-btn {
+  display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 8px;
+  font-family: var(--font-mono); font-size: 0.58rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.12em; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 2px;
+  background: rgba(0,229,255,0.03); color: var(--text-dim);
+  transition: all 0.15s;
+}
+.panel-collapse-btn:hover { background: rgba(0,229,255,0.06); color: var(--accent); }
+.panel-collapse-btn .collapse-arrow { font-size: 0.5rem; transition: transform 0.2s; }
+.panel-collapse-body {
+  display: none; padding: 6px 8px;
+  border: 1px solid var(--border); border-top: none;
+  background: rgba(0,0,0,0.15); border-radius: 0 0 2px 2px;
+}
+.panel-collapse-body.expanded { display: block; }
+.panel-collapse-btn.expanded .collapse-arrow { transform: rotate(180deg); }
+
+/* ---- Connection test status ---- */
+.conn-status { font-size: 11px; font-family: var(--font-mono); }
+.conn-status.success { color: var(--success); }
+.conn-status.error { color: var(--danger); }
+.conn-status.testing { color: var(--accent); }
+
+/* ---- Device info trigger link ---- */
+.device-info-link {
+  font-size: 0.45rem; color: var(--accent); cursor: pointer; opacity: 0.7;
+  margin-left: 6px; text-decoration: underline; text-underline-offset: 2px;
+}
+.device-info-link:hover { opacity: 1; }
+
+/* ---- Device info modal rows ---- */
+#device-info-modal-content,
+#diag-modal-content {
+  font-family: var(--font-mono); font-size: 0.55rem; color: var(--text-dim);
+  display: flex; flex-direction: column; gap: 4px;
+}
+#device-info-modal-content .di-row,
+#diag-modal-content .di-row {
+  display: flex; justify-content: space-between; padding: 3px 0;
+  border-bottom: 1px solid rgba(100,116,139,0.08);
+}
+#device-info-modal-content .di-row .di-label,
+#diag-modal-content .di-row .di-label { color: var(--text-muted); }

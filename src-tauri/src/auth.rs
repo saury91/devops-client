@@ -1,5 +1,14 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
+
+fn http_client() -> Result<Client, String> {
+    Client::builder()
+        .danger_accept_invalid_certs(false)
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoginRequest {
@@ -45,6 +54,23 @@ pub enum DeviceStatus {
     Error(String),
 }
 
+/// Structured error from login_device: categorizes failures so the frontend can
+/// show appropriate UI for each case.
+#[derive(Debug, Clone)]
+pub enum LoginError {
+    Network(String),
+    Server(i32, String),
+}
+
+impl std::fmt::Display for LoginError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoginError::Network(detail) => write!(f, "NETWORK: {}", detail),
+            LoginError::Server(code, msg) => write!(f, "SERVER[{}]: {}", code, msg),
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn login_device(
     server_url: &str,
@@ -56,11 +82,8 @@ pub async fn login_device(
     os_version: &str,
     client_version: &str,
     device_info: &str,
-) -> Result<LoginResponse, String> {
-    let client = Client::builder()
-        .danger_accept_invalid_certs(false)
-        .build()
-        .map_err(|e| e.to_string())?;
+) -> Result<LoginResponse, LoginError> {
+    let client = http_client().map_err(|e| LoginError::Network(e))?;
 
     let url = format!("{}/api/auth/login-device", server_url.trim_end_matches('/'));
 
@@ -80,12 +103,12 @@ pub async fn login_device(
         .json(&req)
         .send()
         .await
-        .map_err(|e| format!("连接失败: {}", e))?;
+        .map_err(|e| LoginError::Network(format!("connect failed: {}", e)))?;
 
     let result: LoginResponse = resp
         .json()
         .await
-        .map_err(|e| format!("解析响应失败: {}", e))?;
+        .map_err(|e| LoginError::Network(format!("parse response failed: {}", e)))?;
 
     Ok(result)
 }
@@ -106,24 +129,21 @@ pub struct UserInfo {
 }
 
 pub async fn get_user_info(server_url: &str, token: &str) -> Result<UserInfoResponse, String> {
-    let client = Client::builder()
-        .danger_accept_invalid_certs(false)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = http_client()?;
 
-    let url = format!("{}/users/me", server_url.trim_end_matches('/'));
+    let url = format!("{}/api/auth/get-user-info", server_url.trim_end_matches('/'));
 
     let resp = client
         .get(&url)
         .header("X-Session-Id", token)
         .send()
         .await
-        .map_err(|e| format!("获取用户信息失败: {}", e))?;
+        .map_err(|e| format!("get_user_info: connect failed: {}", e))?;
 
     let result: UserInfoResponse = resp
         .json()
         .await
-        .map_err(|e| format!("解析用户信息失败: {}", e))?;
+        .map_err(|e| format!("get_user_info: parse response failed: {}", e))?;
 
     Ok(result)
 }
@@ -142,10 +162,7 @@ pub struct ExchangeTokenData {
 }
 
 pub async fn create_exchange_token(server_url: &str, token: &str) -> Result<String, String> {
-    let client = Client::builder()
-        .danger_accept_invalid_certs(false)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = http_client()?;
 
     let url = format!(
         "{}/api/auth/create-exchange-token",
@@ -157,12 +174,12 @@ pub async fn create_exchange_token(server_url: &str, token: &str) -> Result<Stri
         .header("X-Session-Id", token)
         .send()
         .await
-        .map_err(|e| format!("创建兑换令牌失败: {}", e))?;
+        .map_err(|e| format!("create_exchange_token: connect failed: {}", e))?;
 
     let result: ExchangeTokenResponse = resp
         .json()
         .await
-        .map_err(|e| format!("解析兑换令牌响应失败: {}", e))?;
+        .map_err(|e| format!("create_exchange_token: parse response failed: {}", e))?;
 
     if result.code != 200 {
         return Err(result.msg);
@@ -171,14 +188,11 @@ pub async fn create_exchange_token(server_url: &str, token: &str) -> Result<Stri
     result
         .data
         .and_then(|d| d.exchange_token)
-        .ok_or_else(|| "兑换令牌为空".to_string())
+        .ok_or_else(|| "exchange token is empty".to_string())
 }
 
 pub async fn auto_login(server_url: &str, fingerprint: &str) -> Result<LoginResponse, String> {
-    let client = Client::builder()
-        .danger_accept_invalid_certs(false)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = http_client()?;
 
     let url = format!("{}/api/auth/auto-login", server_url.trim_end_matches('/'));
 
@@ -187,12 +201,12 @@ pub async fn auto_login(server_url: &str, fingerprint: &str) -> Result<LoginResp
         .form(&[("fingerprint", fingerprint)])
         .send()
         .await
-        .map_err(|e| format!("自动登录请求失败: {}", e))?;
+        .map_err(|e| format!("auto_login: connect failed: {}", e))?;
 
     let result: LoginResponse = resp
         .json()
         .await
-        .map_err(|e| format!("解析自动登录响应失败: {}", e))?;
+        .map_err(|e| format!("auto_login: parse response failed: {}", e))?;
 
     Ok(result)
 }
@@ -202,10 +216,7 @@ pub async fn check_device_status(
     fingerprint: &str,
     token: &str,
 ) -> Result<DeviceStatus, String> {
-    let client = Client::builder()
-        .danger_accept_invalid_certs(false)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = http_client()?;
 
     let url = format!(
         "{}/api/auth/device-status",

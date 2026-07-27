@@ -13,7 +13,11 @@ pub struct Config {
     pub username: String,
     #[serde(default)]
     pub nickname: String,
+    #[serde(default)]
+    pub language: String,
 }
+
+const SUPPORTED_LANGUAGES: &[&str] = &["zh", "en"];
 
 pub fn get_settings_dir() -> PathBuf {
     dirs::home_dir()
@@ -28,10 +32,68 @@ pub fn load_config() -> Option<Config> {
     serde_json::from_slice(&data).ok()
 }
 
-pub fn save_config(config: &Config) {
+pub fn save_config(config: &Config) -> Result<(), String> {
     let dir = get_settings_dir();
-    std::fs::create_dir_all(&dir).ok();
-    let data = serde_json::to_vec(config).unwrap_or_default();
-    let encrypted = crate::crypto::encrypt(&data);
-    std::fs::write(dir.join("config.json"), encrypted).ok();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create config dir: {}", e))?;
+    restrict_dir_permissions(&dir)?;
+
+    // Validate language if set
+    if !config.language.is_empty() && !SUPPORTED_LANGUAGES.contains(&config.language.as_str()) {
+        return Err(format!(
+            "Unsupported language '{}'. Supported: {:?}",
+            config.language, SUPPORTED_LANGUAGES
+        ));
+    }
+
+    let data =
+        serde_json::to_vec(config).map_err(|e| format!("Failed to serialize config: {}", e))?;
+    let encrypted = crate::crypto::encrypt(&data)?;
+    let path = dir.join("config.json");
+    std::fs::write(&path, encrypted).map_err(|e| format!("Failed to write config: {}", e))?;
+    restrict_file_permissions(&path)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn restrict_dir_permissions(path: &std::path::Path) -> Result<(), String> {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+        .map_err(|e| format!("Failed to set dir permissions: {}", e))
+}
+
+#[cfg(not(unix))]
+fn restrict_dir_permissions(_path: &std::path::Path) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn restrict_file_permissions(path: &std::path::Path) -> Result<(), String> {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+        .map_err(|e| format!("Failed to set file permissions: {}", e))
+}
+
+#[cfg(target_os = "windows")]
+fn restrict_file_permissions(path: &std::path::Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let path_str = path.to_string_lossy();
+    let _ = Command::new("icacls")
+        .args([
+            &path_str,
+            "/inheritance:r",
+            "/grant:r",
+            &format!("%USERNAME%:(R,W)"),
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+    Ok(())
+}
+
+#[cfg(not(any(unix, target_os = "windows")))]
+fn restrict_file_permissions(_path: &std::path::Path) -> Result<(), String> {
+    Ok(())
 }

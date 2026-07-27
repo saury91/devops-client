@@ -2,6 +2,8 @@
 var API = (function () {
   'use strict';
 
+  var _unlisteners = {};
+
   function invoke(cmd, args) {
     args = args || {};
     return window.__TAURI__.core.invoke(cmd, args);
@@ -16,6 +18,19 @@ var API = (function () {
       },
       body: JSON.stringify(body || {})
     }).then(function (r) { return r.json(); });
+  }
+
+  function _listenOnce(name, cb) {
+    // Clean up any previous listener for this event before registering a new one.
+    if (_unlisteners[name]) {
+      _unlisteners[name]();
+      _unlisteners[name] = null;
+    }
+    if (!window.__TAURI__ || !window.__TAURI__.event) return Promise.resolve(function () {});
+    return window.__TAURI__.event.listen(name, cb).then(function (unlisten) {
+      _unlisteners[name] = unlisten;
+      return unlisten;
+    });
   }
 
   return {
@@ -45,30 +60,14 @@ var API = (function () {
     openDashboard: function (serverUrl, token, port) { return invoke('open_dashboard', { serverUrl, token, port }); },
     startHeartbeat: function (url, fp) { return invoke('start_heartbeat', { serverUrl: url, fingerprint: fp }); },
     stopHeartbeat: function ()       { return invoke('stop_heartbeat'); },
-    onRevoked:     function (cb) {
-      if (!window.__TAURI__ || !window.__TAURI__.event) return Promise.resolve(function () {});
-      if (this._unlistenRevoked) { this._unlistenRevoked(); }
-      return window.__TAURI__.event.listen('device-revoked', cb).then(function (unlisten) {
-        this._unlistenRevoked = unlisten;
-        return unlisten;
-      }.bind(this));
-    },
-    onConnectionLost: function (cb) {
-      if (!window.__TAURI__ || !window.__TAURI__.event) return Promise.resolve(function () {});
-      if (this._unlistenLost) { this._unlistenLost(); }
-      return window.__TAURI__.event.listen('connection-lost', cb).then(function (unlisten) {
-        this._unlistenLost = unlisten;
-        return unlisten;
-      }.bind(this));
-    },
-    onProxyPing: function (cb) {
-      if (!window.__TAURI__ || !window.__TAURI__.event) return Promise.resolve(function () {});
-      if (this._unlistenPing) { this._unlistenPing(); }
-      return window.__TAURI__.event.listen('proxy-ping', cb).then(function (unlisten) {
-        this._unlistenPing = unlisten;
-        return unlisten;
-      }.bind(this));
-    },
+    onRevoked:     function (cb) { return _listenOnce('device-revoked', cb); },
+    onConnectionLost: function (cb) { return _listenOnce('connection-lost', cb); },
+    onProxyPing: function (cb) { return _listenOnce('proxy-ping', cb); },
+    onHeartbeatOk: function (cb) { return _listenOnce('heartbeat-ok', cb); },
+    onHeartbeatFail: function (cb) { return _listenOnce('heartbeat-fail', cb); },
+    getDeviceInfo: function ()     { return invoke('get_device_info'); },
+    testConnection: function (url) { return invoke('test_connection', { url: url }); },
+    exportLogFile: function (content, path) { return invoke('export_log_file', { content: content, path: path }); },
     quit: function () {
       return invoke('quit_app');
     }

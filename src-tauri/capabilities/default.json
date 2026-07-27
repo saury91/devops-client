@@ -4,7 +4,6 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "shell:allow-open",
     "core:tray:default",
     "core:tray:allow-set-icon",
     "core:tray:allow-set-menu",
@@ -13,6 +12,7 @@
     "core:menu:default",
     "core:event:default",
     "core:event:allow-listen",
-    "updater:default"
+    "updater:default",
+    "dialog:default"
   ]
 }

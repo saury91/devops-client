@@ -1,4 +1,4 @@
-// Login view — username + password + optional captcha.
+// Login view — username + password.
 var LoginView = (function () {
   'use strict';
 
@@ -15,11 +15,15 @@ var LoginView = (function () {
       document.getElementById('eye-on').style.display = toggled ? '' : 'none';
     });
 
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && document.getElementById('login-view').classList.contains('active')) {
-        handleLogin();
-      }
-    });
+    // Scoped Enter key listener on the login form body
+    var termBody = document.querySelector('#login-view .term-body');
+    if (termBody) {
+      termBody.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && document.getElementById('login-view').classList.contains('active')) {
+          handleLogin();
+        }
+      });
+    }
   }
 
   function formatLoginTime(date) {
@@ -68,6 +72,13 @@ var LoginView = (function () {
         var nickname = (userInfo && userInfo.nickname) ? userInfo.nickname : user;
         var loginTime = formatLoginTime(new Date());
 
+        // Start proxy + heartbeat BEFORE saving config, so a failure
+        // doesn't leave stale token on disk.
+        var port = await API.getProxyPort();
+        if (!port) port = await API.startProxy(result.fingerprint);
+        await API.startHeartbeat(url, result.fingerprint);
+
+        // Now persist config after services are running
         await API.saveConfig({
           server_url: url,
           token: result.token,
@@ -75,10 +86,6 @@ var LoginView = (function () {
           username: user,
           nickname: nickname
         });
-
-        var port = await API.getProxyPort();
-        if (!port) port = await API.startProxy(result.fingerprint);
-        await API.startHeartbeat(url, result.fingerprint);
 
         App.switchView('panel', {
           serverUrl: url, fingerprint: result.fingerprint,

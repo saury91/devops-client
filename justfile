@@ -22,7 +22,7 @@ build:
 build-mac-x64:
     pnpm run build -- --target x86_64-apple-darwin
 
-# Build for all platforms (CI only)
+# Build both macOS architectures (Windows and Linux are built in CI)
 build-all:
     pnpm run build -- --target aarch64-apple-darwin
     pnpm run build -- --target x86_64-apple-darwin

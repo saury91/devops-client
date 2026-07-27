@@ -2,6 +2,8 @@
 var App = (function () {
   'use strict';
 
+  var _dragTimer = 0;
+
   function showToast(message, type) {
     var container = document.getElementById('toast-container');
     if (!container) {
@@ -32,13 +34,8 @@ var App = (function () {
         await update.downloadAndInstall(function (event) {
           switch (event.event) {
             case 'Started':
-              console.log('update download started', event.data.contentLength);
-              break;
             case 'Progress':
-              console.log('update download progress', event.data.chunkLength);
-              break;
             case 'Finished':
-              console.log('update download finished');
               break;
           }
         });
@@ -46,7 +43,7 @@ var App = (function () {
         await process.relaunch();
       }
     } catch (e) {
-      console.error('Update check failed:', e);
+      // Best-effort update check; ignore failures.
     }
   }
 
@@ -58,10 +55,19 @@ var App = (function () {
     try {
       var rustLang = await API.getLang();
       var lang = (rustLang === 'en') ? 'en' : 'zh';
+      try {
+        var cfgLang = await API.loadConfig();
+        if (cfgLang && cfgLang.language) {
+          lang = cfgLang.language;
+        }
+      } catch (_) {}
       await I18n.init(lang);
     } catch (_) {
       try { await I18n.init('zh'); } catch (_) {}
     }
+
+    // Set HTML lang attribute dynamically
+    document.documentElement.lang = I18n.lang();
 
     applyTranslations();
 
@@ -73,19 +79,21 @@ var App = (function () {
       btn.addEventListener('click', function () { API.minimizeWindow(); });
     });
     document.querySelectorAll('.btn-close').forEach(function (btn) {
-      // Panel close (×) hides window to dock/tray; login has btn-hide for hide
       btn.addEventListener('click', function () { API.hideWindow(); });
     });
     document.querySelectorAll('.btn-hide').forEach(function (btn) {
       btn.addEventListener('click', function () { API.hideWindow(); });
     });
 
-    // Custom titlebar drag for login, auto-login and panel views
+    // Custom titlebar drag — debounced to avoid excessive IPC calls
     ['#login-view', '#auto-login-view', '#panel-view'].forEach(function (selector) {
       var titlebar = document.querySelector(selector + ' .term-titlebar');
       if (titlebar) {
         titlebar.addEventListener('mousedown', function (e) {
           if (e.target.closest('.win-actions')) return;
+          // Debounce: at most one startDrag per 200ms
+          if (_dragTimer) return;
+          _dragTimer = setTimeout(function () { _dragTimer = 0; }, 200);
           API.startDrag();
         });
       }
@@ -99,7 +107,11 @@ var App = (function () {
     // Listen for agent ping from PC/browser
     API.onProxyPing(function () { Panel.addLog('PING', true); });
 
-    // Wire panel quit button → logout (return to login view, clear session)
+    // Listen for heartbeat events from Rust backend
+    API.onHeartbeatOk(function () { Wave.heartbeatOk(); });
+    API.onHeartbeatFail(function () { Wave.heartbeatFail(); });
+
+    // Wire panel quit button → logout
     document.getElementById('quit-btn-panel').addEventListener('click', logout);
 
     // Listen for device revoked
@@ -110,6 +122,7 @@ var App = (function () {
 
     // Listen for connection lost (heartbeat failed 3 times)
     API.onConnectionLost(function () {
+      showToast(I18n.t('error.connectionLost'), 'error');
       _doLogout(false); // Keep username for quick re-entry
     });
 
@@ -137,17 +150,26 @@ var App = (function () {
             throw new Error(I18n.t('login.autoLoginFailed') + ': empty token');
           }
 
-          // Persist fresh token and update login time
-          cfg.token = newToken;
-          cfg.login_at = LoginView.formatLoginTime(new Date());
-          await API.saveConfig(cfg);
-
-          // Start proxy + heartbeat
+          // Start proxy + heartbeat BEFORE saving the new token
           port = await API.getProxyPort();
           if (!port) port = await API.startProxy(fp);
           await API.startHeartbeat(cfg.server_url, fp);
+
+          // Persist fresh token only after services started
+          cfg.token = newToken;
+          cfg.login_at = LoginView.formatLoginTime(new Date());
+          await API.saveConfig(cfg);
         } catch (e) {
           autoError = String(e && e.message ? e.message : e);
+        }
+
+        // Show error during splash if it occurred
+        if (autoError) {
+          var errEl = document.getElementById('auto-login-error');
+          if (errEl) {
+            errEl.textContent = I18n.t('login.autoLoginFailed') + ': ' + autoError;
+            errEl.classList.add('visible');
+          }
         }
 
         // Ensure the auto-login page is visible for at least 3 seconds
@@ -162,7 +184,6 @@ var App = (function () {
             await API.saveConfig(cfg);
           } catch (_) {}
 
-          // Auto-login failed: switch to the login form with the reason
           switchView('login', {
             username: cfg.username || '',
             error: I18n.t('login.autoLoginFailed') + ': ' + autoError
@@ -170,7 +191,7 @@ var App = (function () {
           return;
         }
 
-        // Success: go to panel
+        // Success: go to panel (hardware info will be fetched locally)
         switchView('panel', {
           serverUrl: cfg.server_url,
           fingerprint: fp,
@@ -211,12 +232,15 @@ var App = (function () {
 
   function applyTranslations() {
     document.title = I18n.t('login.title');
+    // Also translate title attributes
+    document.querySelectorAll('[data-i18n-title]').forEach(function (el) {
+      el.setAttribute('title', I18n.t(el.getAttribute('data-i18n-title')));
+    });
     var elements = document.querySelectorAll('[data-i18n]');
     elements.forEach(function (el) {
       var key = el.getAttribute('data-i18n');
       if (!key) return;
       var text = I18n.t(key);
-      // Buttons with a .btn-text label should keep their shimmer/icons.
       if (el.tagName === 'BUTTON') {
         var label = el.querySelector('.btn-text');
         if (label) {
@@ -248,7 +272,7 @@ var App = (function () {
       html.classList.remove('login-active', 'auto-login-active');
       html.classList.add('panel-active');
       panelView.classList.add('active');
-      gearBtn.style.display = 'none';
+      if (gearBtn) gearBtn.style.display = 'none';
       API.resizeWindow(360, 624);
       Background.stop();
       Panel.show(state);
@@ -258,7 +282,7 @@ var App = (function () {
       html.classList.remove('panel-active', 'login-active');
       html.classList.add('auto-login-active');
       autoLoginView.classList.add('active');
-      gearBtn.style.display = 'none';
+      if (gearBtn) gearBtn.style.display = 'none';
       API.resizeWindow(360, 320);
       Background.stop();
     } else if (name === 'login') {
@@ -267,9 +291,17 @@ var App = (function () {
       html.classList.remove('panel-active', 'auto-login-active');
       html.classList.add('login-active');
       loginView.classList.add('active');
-      gearBtn.style.display = 'flex';
+      if (gearBtn) gearBtn.style.display = 'flex';
       API.resizeWindow(360, 320);
       Background.stop();
+      // Reset login button state
+      var loginBtn = document.getElementById('login-btn');
+      if (loginBtn) {
+        loginBtn.disabled = false;
+        loginBtn.classList.remove('is-loading');
+        var btnText = loginBtn.querySelector('.btn-text');
+        if (btnText) btnText.textContent = I18n.t('login.signIn');
+      }
       if (state) {
         LoginView.applyState(state);
       }
@@ -278,24 +310,30 @@ var App = (function () {
 
   // Cleanup: stop proxy + heartbeat, clear config, reset form fields (optional)
   async function _doLogout(clearForm) {
-    try { await API.stopProxy(); } catch (_) {}
-    try { await API.stopHeartbeat(); } catch (_) {}
+    try { await API.stopProxy(); } catch (e) { console.error('stopProxy failed:', e); }
+    try { await API.stopHeartbeat(); } catch (e) { console.error('stopHeartbeat failed:', e); }
+    Panel.cleanup();
     var cfg = await API.loadConfig();
     if (cfg) {
       if (cfg.server_url && cfg.token) {
-        try { await API.serverLogout(cfg.server_url, cfg.token); } catch (_) {}
+        try { await API.serverLogout(cfg.server_url, cfg.token); } catch (e) { console.error('serverLogout failed:', e); }
       }
       cfg.token = '';
-      await API.saveConfig(cfg);
+      try { await API.saveConfig(cfg); } catch (e) { console.error('saveConfig on logout failed:', e); }
     }
     document.getElementById('msg-label').textContent = '';
     var loginBtn = document.getElementById('login-btn');
-    loginBtn.disabled = false;
-    loginBtn.classList.remove('is-loading');
-    loginBtn.querySelector('.btn-text').textContent = I18n.t('login.signIn');
+    if (loginBtn) {
+      loginBtn.disabled = false;
+      loginBtn.classList.remove('is-loading');
+      var btnTextEl = loginBtn.querySelector('.btn-text');
+      if (btnTextEl) btnTextEl.textContent = I18n.t('login.signIn');
+    }
     if (clearForm) {
-      document.getElementById('user-input').value = '';
-      document.getElementById('pass-input').value = '';
+      var userInput = document.getElementById('user-input');
+      var passInput = document.getElementById('pass-input');
+      if (userInput) userInput.value = '';
+      if (passInput) passInput.value = '';
     }
     switchView('login');
   }
@@ -305,8 +343,9 @@ var App = (function () {
   }
 
   async function quitApp() {
-    try { await API.stopProxy(); } catch (_) {}
-    try { await API.stopHeartbeat(); } catch (_) {}
+    try { await API.stopProxy(); } catch (e) { console.error('quit: stopProxy failed:', e); }
+    try { await API.stopHeartbeat(); } catch (e) { console.error('quit: stopHeartbeat failed:', e); }
+    Panel.cleanup();
     API.quit();
   }
 

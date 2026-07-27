@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -54,11 +54,11 @@
         </div>
         <span class="term-title">auth_terminal.exe</span>
         <div class="term-spacer"></div>
+        <button id="gear-btn" class="titlebar-gear">&#9881;</button>
       </div>
 
       <!-- Body -->
       <div class="term-body">
-        <button id="gear-btn" class="term-gear">&#9881;</button>
         <div class="term-prompt">
           <span class="dollar">$</span><span class="cmd">login --init</span>
         </div>
@@ -90,8 +90,6 @@
             </button>
           </div>
         </div>
-
-        <!-- Captcha (reserved, not implemented yet) -->
 
         <!-- Submit -->
         <button id="login-btn" class="btn-scan">
@@ -130,6 +128,10 @@
               </div>
               <div class="info-line info-sub">
                 <span data-i18n="panel.platform">平台</span>: <span id="p-platform">-</span>
+                <span id="device-info-trigger" class="device-info-link" data-i18n="panel.viewDevice">查看</span>
+              </div>
+              <div class="info-line info-sub">
+                <span data-i18n="panel.version">版本</span>: <span id="p-version">-</span>
               </div>
               <div class="info-line info-sub">
                 <span data-i18n="panel.loginTime">登录时间</span>: <span id="p-login-time">-</span>
@@ -137,7 +139,13 @@
             </div>
           </div>
           <div class="panel-top-actions">
-            <button id="quit-btn-panel" class="btn-danger btn-sm" data-i18n="panel.quit">退出登录</button>
+            <button id="quit-btn-panel" class="btn-quit-icon" title="退出登录" data-i18n-title="panel.quit">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                <polyline points="16 17 21 12 16 7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+            </button>
           </div>
         </div>
         <hr/>
@@ -170,7 +178,11 @@
         <div id="tab-log" class="panel-tab-content">
           <div class="log-header">
             <span class="log-title" data-i18n="panel.logTitle">Event Log</span>
-            <button id="clear-log-btn" class="log-clear-btn" data-i18n="panel.clearLog">FLUSH</button>
+            <div style="display:flex;gap:6px;">
+              <button id="diag-log-btn" class="log-clear-btn" style="background:rgba(0,229,255,0.08);border-color:rgba(0,229,255,0.25);color:var(--accent)" data-i18n="panel.diagnostics">DIAG</button>
+              <button id="export-log-btn" class="log-clear-btn" style="background:rgba(0,229,255,0.08);border-color:rgba(0,229,255,0.25);color:var(--accent)" data-i18n="panel.exportLog">EXPORT</button>
+              <button id="clear-log-btn" class="log-clear-btn" data-i18n="panel.clearLog">FLUSH</button>
+            </div>
           </div>
           <div id="log-list" class="log-list"></div>
         </div>
@@ -187,7 +199,14 @@
       </div><hr/>
       <div class="form-group">
         <label data-i18n="settings.serverUrl">Server URL</label>
-        <input type="text" id="settings-url" class="settings-input" placeholder="https://" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+        <div style="display:flex;gap:6px;">
+          <input type="text" id="settings-url" class="settings-input" placeholder="https://" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="flex:1" />
+          <select id="settings-url-history" class="settings-input" style="width:auto;min-width:32px;cursor:pointer" title="History"></select>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+          <button id="settings-test-conn" class="btn-sm" style="font-size:11px;padding:4px 10px;background:rgba(0,229,255,0.08);border:1px solid rgba(0,229,255,0.25);color:var(--accent);border-radius:4px;cursor:pointer" data-i18n="settings.testConn">TEST</button>
+          <span id="settings-conn-status" class="conn-status"></span>
+        </div>
       </div>
       <div class="form-group">
         <label data-i18n="settings.language">Language</label>
@@ -197,6 +216,28 @@
         </select>
       </div>
       <button id="settings-save" class="btn-scan"><span class="btn-text" data-i18n="settings.save">SAVE</span></button>
+    </div>
+  </div>
+
+  <!-- ============ Device Info Modal ============ -->
+  <div id="device-info-overlay" class="overlay">
+    <div class="overlay-card">
+      <div class="overlay-header">
+        <h2 data-i18n="panel.deviceInfo">DEVICE INFO</h2>
+        <button id="device-info-close" class="close-btn">&times;</button>
+      </div><hr/>
+      <div id="device-info-modal-content"></div>
+    </div>
+  </div>
+
+  <!-- ============ Diagnostics Modal ============ -->
+  <div id="diag-overlay" class="overlay">
+    <div class="overlay-card">
+      <div class="overlay-header">
+        <h2 data-i18n="panel.diagnostics">DIAGNOSTICS</h2>
+        <button id="diag-close" class="close-btn">&times;</button>
+      </div><hr/>
+      <div id="diag-modal-content"></div>
     </div>
   </div>
 

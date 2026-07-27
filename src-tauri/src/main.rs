@@ -1,6 +1,3 @@
-// Prevents an additional console window on Windows in release.
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -22,15 +19,19 @@ fn main() {
         port: Mutex::new(None),
         fingerprint: Mutex::new(String::new()),
         shutdown_tx: Mutex::new(None),
+        start_lock: Mutex::new(()),
     });
 
     let heartbeat_state = Arc::new(HeartbeatState {
         running: AtomicBool::new(false),
+        cancel: Mutex::new(None),
+        start_lock: Mutex::new(()),
     });
 
     tauri::Builder::default()
         .manage(proxy_state.clone())
         .manage(heartbeat_state.clone())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -46,6 +47,7 @@ fn main() {
             commands::load_config_cmd,
             commands::save_config_cmd,
             commands::get_hostname,
+            commands::get_os_info,
             commands::get_user_info,
             commands::do_login,
             commands::server_logout,
@@ -62,6 +64,11 @@ fn main() {
             commands::hide_window,
             commands::start_drag,
             commands::quit_app,
+            commands::get_device_info,
+            commands::test_connection,
+            commands::export_log_file,
+            commands::export_device_key,
+            commands::import_device_key,
         ])
         .setup(move |app| {
             use tauri::menu::{MenuBuilder, MenuItemBuilder};
@@ -77,23 +84,40 @@ fn main() {
                 let _ = window.set_title(window_title);
             }
 
-            let open_item = MenuItemBuilder::with_id("open", open_label)
-                .build(app)
-                .unwrap();
-            let quit_item = MenuItemBuilder::with_id("quit", quit_label)
-                .build(app)
-                .unwrap();
+            let open_item = match MenuItemBuilder::with_id("open", open_label).build(app) {
+                Ok(item) => item,
+                Err(e) => {
+                    eprintln!("Failed to create menu item 'open': {}", e);
+                    return Err(Box::new(e));
+                }
+            };
+            let quit_item = match MenuItemBuilder::with_id("quit", quit_label).build(app) {
+                Ok(item) => item,
+                Err(e) => {
+                    eprintln!("Failed to create menu item 'quit': {}", e);
+                    return Err(Box::new(e));
+                }
+            };
 
-            let menu = MenuBuilder::new(app)
-                .item(&open_item)
-                .separator()
-                .item(&quit_item)
-                .build()
-                .unwrap();
+            let menu = match MenuBuilder::new(app).item(&open_item).separator().item(&quit_item).build() {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("Failed to build tray menu: {}", e);
+                    return Err(Box::new(e));
+                }
+            };
 
             let proxy_state_clone = proxy_state.clone();
-            let _tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+            let icon = match app.default_window_icon() {
+                Some(icon) => icon.clone(),
+                None => {
+                    eprintln!("No default window icon found — tray will use a blank icon");
+                    return Err("missing default window icon".into());
+                }
+            };
+
+            let _tray = match TrayIconBuilder::new()
+                .icon(icon)
                 .tooltip(tooltip)
                 .menu(&menu)
                 .on_menu_event(move |app, event| match event.id().as_ref() {
@@ -105,6 +129,14 @@ fn main() {
                     }
                     "quit" => {
                         proxy_state_clone.running.store(false, Ordering::SeqCst);
+                        if let Some(tx) = proxy_state_clone.shutdown_tx.lock().unwrap().take() {
+                            let _ = tx.send(());
+                        }
+                        let hb = app.state::<Arc<HeartbeatState>>();
+                        hb.running.store(false, Ordering::SeqCst);
+                        if let Some(cancel) = hb.cancel.lock().unwrap().take() {
+                            cancel.store(false, Ordering::SeqCst);
+                        }
                         app.exit(0);
                     }
                     _ => {}
@@ -123,7 +155,13 @@ fn main() {
                     }
                 })
                 .build(app)
-                .unwrap();
+            {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("Failed to build tray icon: {}", e);
+                    return Err(Box::new(e));
+                }
+            };
 
             Ok(())
         })
@@ -144,6 +182,9 @@ fn main() {
                 }
             }
             #[cfg(not(target_os = "macos"))]
-            let _ = (app_handle, event);
+            {
+                let _ = app_handle;
+                let _ = event;
+            }
         });
 }

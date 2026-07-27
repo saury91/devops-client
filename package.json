@@ -1,6 +1,6 @@
 {
   "name": "devops-client",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "description": "Desktop agent for DevOps platform device authentication",
   "packageManager": "pnpm@10.33.0",
@@ -16,6 +16,7 @@
     "@fontsource/inter": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
     "@tauri-apps/plugin-process": "^2",
     "@tauri-apps/plugin-shell": "^2",
     "@tauri-apps/plugin-updater": "^2"

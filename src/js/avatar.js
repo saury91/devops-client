@@ -15,15 +15,13 @@ var AvatarUtil = (function () {
     var safeInitial = initial ? String(initial).trim().charAt(0).toUpperCase() : '?';
     safeInitial = escapeXml(safeInitial);
 
+    // Use native SVG <text> for broad WebView compatibility (no foreignObject).
     var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">' +
       '<rect width="120" height="120" fill="#0B1120"/>' +
       '<circle cx="60" cy="60" r="56" fill="rgba(59,244,160,0.08)" stroke="rgba(59,244,160,0.35)" stroke-width="2"/>' +
-      '<foreignObject x="0" y="0" width="120" height="120">' +
-        '<div xmlns="http://www.w3.org/1999/xhtml" style="width:120px;height:120px;display:flex;align-items:center;justify-content:center;font-family:Chakra Petch, -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif;font-size:52px;font-weight:600;color:#3BF4A0;line-height:1;">' + safeInitial + '</div>' +
-      '</foreignObject>' +
+      '<text x="60" y="60" text-anchor="middle" dominant-baseline="central" font-family="Inter, -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif" font-size="52" font-weight="600" fill="#3BF4A0">' + safeInitial + '</text>' +
       '</svg>';
 
-    // UTF-8 safe base64 without deprecated unescape().
     var bytes = new TextEncoder().encode(svg);
     var binary = '';
     for (var i = 0; i < bytes.length; i++) {

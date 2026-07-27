@@ -177,6 +177,10 @@ var Background = (function () {
 
   function stop() {
     if (animId) cancelAnimationFrame(animId);
+    animId = null;
+    particles.length = 0;
+    circuits.length = 0;
+    pulses.length = 0;
   }
 
   return { init: init, stop: stop };

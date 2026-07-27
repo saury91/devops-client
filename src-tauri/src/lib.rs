@@ -4,5 +4,6 @@ pub mod config;
 pub mod crypto;
 pub mod fingerprint;
 pub mod i18n;
+pub mod platform;
 pub mod proxy;
 pub mod state;
