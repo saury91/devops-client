@@ -1,4 +1,4 @@
-// Settings panel — server URL, language, connection test, key management, URL history.
+// Settings panel — server URL, language, connection test.
 var Settings = (function () {
   'use strict';
 
@@ -15,15 +15,6 @@ var Settings = (function () {
     // Connection test
     var testBtn = document.getElementById('settings-test-conn');
     if (testBtn) testBtn.addEventListener('click', testConnection);
-
-    // URL history dropdown
-    var urlSelect = document.getElementById('settings-url-history');
-    if (urlSelect) urlSelect.addEventListener('change', function () {
-      if (urlSelect.value) {
-        document.getElementById('settings-url').value = urlSelect.value;
-        urlSelect.value = '';
-      }
-    });
 
     document.getElementById('settings-overlay').addEventListener('click', function (e) {
       if (e.target === this) hide();
@@ -44,9 +35,6 @@ var Settings = (function () {
 
     _langSelect.value = I18n.lang();
     document.getElementById('settings-overlay').classList.add('active');
-
-    // Populate URL history
-    renderUrlHistory();
   }
 
   function hide() {
@@ -66,9 +54,6 @@ var Settings = (function () {
     cfg.server_url = url;
     cfg.language = lang;
     await API.saveConfig(cfg);
-
-    // Add URL to history
-    if (url) addUrlToHistory(url);
 
     if (lang !== I18n.lang()) {
       await I18n.load(lang);
@@ -118,31 +103,6 @@ var Settings = (function () {
     if (!el) return;
     el.textContent = msg;
     el.className = 'conn-status ' + (isError ? 'error' : 'success');
-  }
-
-  // --- URL history (localStorage) ---
-  function getUrlHistory() {
-    try {
-      return JSON.parse(localStorage.getItem('devops-url-history') || '[]');
-    } catch (_) { return []; }
-  }
-
-  function addUrlToHistory(url) {
-    var list = getUrlHistory();
-    list = list.filter(function (u) { return u !== url; });
-    list.unshift(url);
-    if (list.length > 10) list.pop();
-    localStorage.setItem('devops-url-history', JSON.stringify(list));
-  }
-
-  function renderUrlHistory() {
-    var sel = document.getElementById('settings-url-history');
-    if (!sel) return;
-    var list = getUrlHistory();
-    sel.innerHTML = '<option value="">' + I18n.t('settings.urlHistory') + '</option>';
-    for (var i = 0; i < list.length; i++) {
-      sel.innerHTML += '<option value="' + list[i].replace(/"/g, '&quot;') + '">' + list[i] + '</option>';
-    }
   }
 
   return { init: init, show: show, hide: hide };

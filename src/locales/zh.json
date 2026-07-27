@@ -76,7 +76,6 @@
   "settings.testing": "测试中...",
   "settings.connOk": "连接成功",
   "settings.connFail": "连接失败",
-  "settings.urlHistory": "历史",
 
   "update.found": "发现新版本",
   "update.installing": "正在安装更新"

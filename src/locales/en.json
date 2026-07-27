@@ -76,7 +76,6 @@
   "settings.testing": "Testing...",
   "settings.connOk": "Connected",
   "settings.connFail": "Failed",
-  "settings.urlHistory": "History",
 
   "update.found": "New version available",
   "update.installing": "Installing update"
