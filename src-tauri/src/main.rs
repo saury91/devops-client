@@ -66,15 +66,12 @@ fn main() {
         .setup(move |app| {
             #[cfg(target_os = "windows")]
             {
-                use tauri::WebviewWindowExt;
-                use windows::Win32::Foundation::HWND;
                 use windows::Win32::Graphics::Dwm::{
                     DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
                 };
 
                 if let Some(window) = app.get_webview_window("main") {
-                    if let Ok(raw_hwnd) = window.hwnd() {
-                        let hwnd = HWND(raw_hwnd as _);
+                    if let Ok(hwnd) = window.hwnd() {
                         let preference = DWMWCP_DONOTROUND.0 as u32;
                         unsafe {
                             let _ = DwmSetWindowAttribute(
