@@ -64,27 +64,6 @@ fn main() {
             commands::quit_app,
         ])
         .setup(move |app| {
-            #[cfg(target_os = "windows")]
-            {
-                use windows::Win32::Graphics::Dwm::{
-                    DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
-                };
-
-                if let Some(window) = app.get_webview_window("main") {
-                    if let Ok(hwnd) = window.hwnd() {
-                        let preference = DWMWCP_DONOTROUND.0 as u32;
-                        unsafe {
-                            let _ = DwmSetWindowAttribute(
-                                hwnd,
-                                DWMWA_WINDOW_CORNER_PREFERENCE,
-                                &preference as *const _ as *const _,
-                                std::mem::size_of::<u32>() as u32,
-                            );
-                        }
-                    }
-                }
-            }
-
             use tauri::menu::{MenuBuilder, MenuItemBuilder};
             use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
