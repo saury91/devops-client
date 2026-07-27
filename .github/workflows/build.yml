@@ -16,9 +16,7 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            args: --target aarch64-apple-darwin
-          - platform: macos-latest
-            args: --target x86_64-apple-darwin
+            args: --target universal-apple-darwin
           - platform: ubuntu-latest
             args: --target x86_64-unknown-linux-gnu
           - platform: windows-latest
@@ -39,7 +37,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.platform == 'macos-latest' && 'universal-apple-darwin' || '' }}
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-latest'
@@ -70,7 +68,18 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "DevOps Client v__VERSION__"
-          releaseBody: "See the assets to download and install this version."
+          releaseBody: |
+            ## Install
+
+            **macOS**: Download the `.dmg` file, open it, and drag `DevOps Client.app` to `/Applications`.
+            If you see "app is damaged", run this in Terminal:
+            ```
+            xattr -cr "/Applications/DevOps Client.app"
+            ```
+
+            **Windows**: Download the `.msi` installer and run it.
+
+            **Linux**: Download the `.deb` or `.AppImage` file and install with your package manager.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
