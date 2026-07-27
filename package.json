@@ -1,6 +1,6 @@
 {
   "name": "devops-client",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "Desktop agent for DevOps platform device authentication",
   "packageManager": "pnpm@10.33.0",
