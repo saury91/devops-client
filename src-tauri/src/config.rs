@@ -80,13 +80,14 @@ fn restrict_file_permissions(path: &std::path::Path) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     use std::process::Command;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
-    let path_str = path.to_string_lossy();
+    let path_str = path.to_string_lossy().into_owned();
+    let perm_str = std::env::var("USERNAME").unwrap_or_else(|_| "User".to_string()) + ":(R,W)";
     let _ = Command::new("icacls")
         .args([
-            &path_str,
+            path_str.as_str(),
             "/inheritance:r",
             "/grant:r",
-            &format!("%USERNAME%:(R,W)"),
+            perm_str.as_str(),
         ])
         .creation_flags(CREATE_NO_WINDOW)
         .output();
