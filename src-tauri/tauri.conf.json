@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "DevOps Client",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "identifier": "io.github.devops-client",
   "build": {
     "frontendDist": "../src",
@@ -24,7 +24,7 @@
     "trayIcon": {
       "iconPath": "icons/icon.png",
       "iconAsTemplate": true,
-      "tooltip": "DevOps Desktop Agent"
+      "tooltip": "DevOps Client"
     },
     "withGlobalTauri": true,
     "security": {

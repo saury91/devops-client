@@ -153,6 +153,12 @@ var App = (function () {
         await sleep(remaining);
 
         if (autoError) {
+          // Clear the stale token so next startup goes straight to login
+          try {
+            cfg.token = '';
+            await API.saveConfig(cfg);
+          } catch (_) {}
+
           // Auto-login failed: switch to the login form with the reason
           switchView('login', {
             username: cfg.username || '',

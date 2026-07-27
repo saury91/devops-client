@@ -34,6 +34,12 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .invoke_handler(tauri::generate_handler![
             commands::get_lang,
             commands::get_fingerprint,
@@ -58,6 +64,30 @@ fn main() {
             commands::quit_app,
         ])
         .setup(move |app| {
+            #[cfg(target_os = "windows")]
+            {
+                use tauri::WebviewWindowExt;
+                use windows::Win32::Foundation::HWND;
+                use windows::Win32::Graphics::Dwm::{
+                    DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
+                };
+
+                if let Some(window) = app.get_webview_window("main") {
+                    if let Ok(raw_hwnd) = window.hwnd() {
+                        let hwnd = HWND(raw_hwnd as _);
+                        let preference = DWMWCP_DONOTROUND.0 as u32;
+                        unsafe {
+                            let _ = DwmSetWindowAttribute(
+                                hwnd,
+                                DWMWA_WINDOW_CORNER_PREFERENCE,
+                                &preference as *const _ as *const _,
+                                std::mem::size_of::<u32>() as u32,
+                            );
+                        }
+                    }
+                }
+            }
+
             use tauri::menu::{MenuBuilder, MenuItemBuilder};
             use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 

@@ -28,6 +28,9 @@ fn get_system_uuid() -> String {
 
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
         // Try MachineGuid first (stable per OS install)
         if let Ok(o) = std::process::Command::new("reg")
             .args([
@@ -36,6 +39,7 @@ fn get_system_uuid() -> String {
                 "/v",
                 "MachineGuid",
             ])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
         {
             let s = String::from_utf8_lossy(&o.stdout);
@@ -49,6 +53,7 @@ fn get_system_uuid() -> String {
         // Fallback to wmic
         if let Ok(o) = std::process::Command::new("wmic")
             .args(["csproduct", "get", "uuid"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
         {
             let s = String::from_utf8_lossy(&o.stdout);
