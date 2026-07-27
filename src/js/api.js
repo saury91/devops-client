@@ -61,6 +61,14 @@ var API = (function () {
         return unlisten;
       }.bind(this));
     },
+    onProxyPing: function (cb) {
+      if (!window.__TAURI__ || !window.__TAURI__.event) return Promise.resolve(function () {});
+      if (this._unlistenPing) { this._unlistenPing(); }
+      return window.__TAURI__.event.listen('proxy-ping', cb).then(function (unlisten) {
+        this._unlistenPing = unlisten;
+        return unlisten;
+      }.bind(this));
+    },
     quit: function () {
       return invoke('quit_app');
     }

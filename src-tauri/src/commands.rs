@@ -266,8 +266,9 @@ pub async fn server_logout(server_url: String, token: String) -> Result<(), Stri
 pub fn start_proxy(
     fingerprint: String,
     proxy_state: State<'_, Arc<ProxyState>>,
+    app_handle: AppHandle,
 ) -> Result<u16, String> {
-    let (port, shutdown_tx) = proxy::start_proxy(fingerprint.clone())?;
+    let (port, shutdown_tx) = proxy::start_proxy(fingerprint.clone(), app_handle)?;
     proxy_state.running.store(true, Ordering::SeqCst);
     *proxy_state.port.lock().unwrap() = Some(port);
     *proxy_state.fingerprint.lock().unwrap() = fingerprint;

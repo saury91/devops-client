@@ -96,6 +96,9 @@ var App = (function () {
     Panel.init();
     Settings.init();
 
+    // Listen for agent ping from PC/browser
+    API.onProxyPing(function () { Panel.addLog('PING', true); });
+
     // Wire panel quit button → logout (return to login view, clear session)
     document.getElementById('quit-btn-panel').addEventListener('click', logout);
 
