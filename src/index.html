@@ -72,7 +72,7 @@
             <span data-i18n="login.username">Username</span>
           </label>
           <div class="input-wrap corner-accent">
-            <input type="text" id="user-input" placeholder="root" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+            <input type="text" id="user-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
           </div>
         </div>
 
@@ -83,7 +83,7 @@
             <span data-i18n="login.password">Password</span>
           </label>
           <div class="input-wrap corner-accent pw-wrap">
-            <input type="password" id="pass-input" placeholder="········" autocapitalize="off" autocorrect="off" spellcheck="false" />
+            <input type="password" id="pass-input" autocapitalize="off" autocorrect="off" spellcheck="false" />
             <button id="toggle-pass" class="pw-eye" type="button">
               <svg id="eye-off" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
               <svg id="eye-on" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -224,6 +224,30 @@
         <button id="device-info-close" class="close-btn">&times;</button>
       </div><hr/>
       <div id="device-info-modal-content"></div>
+    </div>
+  </div>
+
+  <!-- ============ Change Password Modal ============ -->
+  <div id="change-pw-overlay" class="overlay">
+    <div class="overlay-card">
+      <div class="overlay-header">
+        <h2 data-i18n="panel.changePw">CHANGE PASSWORD</h2>
+        <button id="change-pw-close" class="close-btn">&times;</button>
+      </div><hr/>
+      <div class="form-group">
+        <label data-i18n="panel.oldPw">Old Password</label>
+        <input type="password" id="change-pw-old" class="settings-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      </div>
+      <div class="form-group">
+        <label data-i18n="panel.newPw">New Password</label>
+        <input type="password" id="change-pw-new" class="settings-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      </div>
+      <div class="form-group">
+        <label data-i18n="panel.confirmPw">Confirm New Password</label>
+        <input type="password" id="change-pw-confirm" class="settings-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      </div>
+      <div id="change-pw-error" class="msg" style="min-height:16px;margin:6px 0 0;"></div>
+      <button id="change-pw-submit" class="btn-scan"><span class="btn-text" data-i18n="panel.changePwSubmit">CONFIRM</span></button>
     </div>
   </div>
 

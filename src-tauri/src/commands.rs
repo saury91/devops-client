@@ -482,6 +482,17 @@ pub async fn get_user_info(server_url: String, token: String) -> Result<serde_js
 }
 
 #[tauri::command]
+pub async fn change_password(
+    server_url: String,
+    token: String,
+    old_password: String,
+    new_password: String,
+) -> Result<(), String> {
+    validate_server_url(&server_url)?;
+    auth::change_password(&server_url, &token, &old_password, &new_password).await
+}
+
+#[tauri::command]
 pub async fn auto_login(
     server_url: String,
     fingerprint: String,

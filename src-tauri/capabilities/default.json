@@ -13,6 +13,7 @@
     "core:event:default",
     "core:event:allow-listen",
     "updater:default",
+    "process:default",
     "dialog:default"
   ]
 }

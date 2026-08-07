@@ -72,6 +72,17 @@
   "panel.exportLog": "导出",
   "panel.logExported": "日志已保存",
 
+  "panel.changePw": "修改密码",
+  "panel.oldPw": "原密码",
+  "panel.newPw": "新密码",
+  "panel.confirmPw": "确认新密码",
+  "panel.changePwSubmit": "确认修改",
+  "panel.pwTooShort": "新密码长度不能少于 10 位",
+  "panel.pwMismatch": "两次输入的新密码不一致",
+  "panel.pwChanged": "密码修改成功，请用新密码重新登录",
+  "panel.pwChangeFail": "密码修改失败",
+  "panel.noServer": "服务器地址不可用",
+
   "settings.testConn": "测试",
   "settings.testing": "测试中...",
   "settings.connOk": "连接成功",

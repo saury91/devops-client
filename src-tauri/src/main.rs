@@ -51,6 +51,7 @@ fn main() {
             commands::get_user_info,
             commands::do_login,
             commands::server_logout,
+            commands::change_password,
             commands::auto_login,
             commands::start_proxy,
             commands::stop_proxy,

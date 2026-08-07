@@ -72,6 +72,17 @@
   "panel.exportLog": "Export",
   "panel.logExported": "Log saved",
 
+  "panel.changePw": "CHANGE PASSWORD",
+  "panel.oldPw": "Old Password",
+  "panel.newPw": "New Password",
+  "panel.confirmPw": "Confirm New Password",
+  "panel.changePwSubmit": "CONFIRM",
+  "panel.pwTooShort": "Password must be at least 10 characters",
+  "panel.pwMismatch": "Passwords do not match",
+  "panel.pwChanged": "Password changed. Please sign in with your new password.",
+  "panel.pwChangeFail": "Failed to change password",
+  "panel.noServer": "Server address unavailable",
+
   "settings.testConn": "Test",
   "settings.testing": "Testing...",
   "settings.connOk": "Connected",

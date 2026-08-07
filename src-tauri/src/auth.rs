@@ -149,6 +149,49 @@ pub async fn get_user_info(server_url: &str, token: &str) -> Result<UserInfoResp
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChangePasswordResponse {
+    pub code: i32,
+    pub msg: String,
+}
+
+/// 修改当前登录用户密码；成功后服务端会强制该用户所有会话下线。
+pub async fn change_password(
+    server_url: &str,
+    token: &str,
+    old_password: &str,
+    new_password: &str,
+) -> Result<(), String> {
+    let client = http_client()?;
+    let url = format!(
+        "{}/api/auth/change-password",
+        server_url.trim_end_matches('/')
+    );
+
+    let body = serde_json::json!({
+        "oldPassword": old_password,
+        "newPassword": new_password,
+    });
+
+    let resp = client
+        .post(&url)
+        .header("X-Session-Id", token)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("change_password: connect failed: {}", e))?;
+
+    let result: ChangePasswordResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("change_password: parse response failed: {}", e))?;
+
+    if result.code != 200 {
+        return Err(result.msg);
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExchangeTokenResponse {
     pub code: i32,
     pub msg: String,

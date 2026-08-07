@@ -41,6 +41,9 @@ var API = (function () {
     getHostname:   function ()       { return invoke('get_hostname'); },
     getOsInfo:     function ()       { return invoke('get_os_info'); },
     getUserInfo:   function (url, token) { return invoke('get_user_info', { serverUrl: url, token: token }); },
+    changePassword: function (url, token, oldPassword, newPassword) {
+      return invoke('change_password', { serverUrl: url, token: token, oldPassword: oldPassword, newPassword: newPassword });
+    },
     post:          post,
     doLogin:       function (url, user, pass, dev) {
       return invoke('do_login', {

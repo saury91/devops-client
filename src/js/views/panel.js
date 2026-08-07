@@ -387,6 +387,47 @@ var Panel = (function () {
     }
   }
 
+  // --- Change password modal ---
+  function openChangePw() {
+    document.getElementById('change-pw-old').value = '';
+    document.getElementById('change-pw-new').value = '';
+    document.getElementById('change-pw-confirm').value = '';
+    var errEl = document.getElementById('change-pw-error');
+    if (errEl) errEl.textContent = '';
+    document.getElementById('change-pw-overlay').classList.add('active');
+    var oldInput = document.getElementById('change-pw-old');
+    if (oldInput) setTimeout(function () { oldInput.focus(); }, 60);
+  }
+
+  function hideChangePw() {
+    document.getElementById('change-pw-overlay').classList.remove('active');
+  }
+
+  async function submitChangePw() {
+    var oldPw = document.getElementById('change-pw-old').value;
+    var newPw = document.getElementById('change-pw-new').value;
+    var confirmPw = document.getElementById('change-pw-confirm').value;
+    var errEl = document.getElementById('change-pw-error');
+    if (!oldPw || !newPw) { if (errEl) errEl.textContent = I18n.t('login.fillAll'); return; }
+    if (newPw.length < 10) { if (errEl) errEl.textContent = I18n.t('panel.pwTooShort'); return; }
+    if (newPw !== confirmPw) { if (errEl) errEl.textContent = I18n.t('panel.pwMismatch'); return; }
+    if (!_state || !_state.serverUrl) { if (errEl) errEl.textContent = I18n.t('panel.noServer'); return; }
+
+    var btn = document.getElementById('change-pw-submit');
+    btn.disabled = true;
+    try {
+      await API.changePassword(_state.serverUrl, _state.token, oldPw, newPw);
+      hideChangePw();
+      showToast(I18n.t('panel.pwChanged'));
+      // 修改成功：自动退出，要求用新密码重新登录
+      setTimeout(function () { if (window.App) App.logout(); }, 800);
+    } catch (e) {
+      if (errEl) errEl.textContent = (e && e.message) ? e.message : I18n.t('panel.pwChangeFail');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   // Wire buttons
   document.addEventListener('DOMContentLoaded', function () {
     var clearBtn = document.getElementById('clear-log-btn');
@@ -410,6 +451,25 @@ var Panel = (function () {
     var overlay = document.getElementById('device-info-overlay');
     if (overlay) overlay.addEventListener('click', function (e) {
       if (e.target === this) hideDeviceInfoModal();
+    });
+    // Change password modal — click nickname opens it
+    var nickEl = document.getElementById('p-nick');
+    if (nickEl) {
+      nickEl.style.cursor = 'pointer';
+      nickEl.addEventListener('click', openChangePw);
+    }
+    var cpClose = document.getElementById('change-pw-close');
+    if (cpClose) cpClose.addEventListener('click', hideChangePw);
+    var cpOverlay = document.getElementById('change-pw-overlay');
+    if (cpOverlay) cpOverlay.addEventListener('click', function (e) {
+      if (e.target === this) hideChangePw();
+    });
+    var cpSubmit = document.getElementById('change-pw-submit');
+    if (cpSubmit) cpSubmit.addEventListener('click', submitChangePw);
+    // Enter key submits inside change-pw overlay
+    var cpCard = cpOverlay ? cpOverlay.querySelector('.overlay-card') : null;
+    if (cpCard) cpCard.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && cpOverlay.classList.contains('active')) submitChangePw();
     });
   });
 

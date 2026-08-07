@@ -84,6 +84,7 @@ var LoginView = (function () {
           token: result.token,
           login_at: loginTime,
           username: user,
+          password: pass,
           nickname: nickname
         });
 
@@ -132,8 +133,10 @@ var LoginView = (function () {
     if (state.username && userInput) {
       userInput.value = state.username;
     }
-    // Password is not cached for security; focus password field for quick re-entry
-    if (passInput) passInput.value = '';
+    // 被动退出时回显已保存密码；主动退出（主动登出）不传 password 则留空
+    if (passInput) {
+      passInput.value = state.password || '';
+    }
     if (state.error && msg) {
       showMsg(msg, state.error);
     }

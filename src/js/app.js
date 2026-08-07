@@ -26,24 +26,26 @@ var App = (function () {
 
   async function checkForUpdate() {
     try {
-      var updater = await import('@tauri-apps/plugin-updater');
-      var process = await import('@tauri-apps/plugin-process');
-      var update = await updater.check();
-      if (update) {
-        showToast(I18n.t('update.found') + ' ' + update.version, 'info');
-        await update.downloadAndInstall(function (event) {
-          switch (event.event) {
-            case 'Started':
-            case 'Progress':
-            case 'Finished':
-              break;
-          }
-        });
-        showToast(I18n.t('update.installing'), 'info');
-        await process.relaunch();
-      }
+      // 直接调用 updater/process 插件的 IPC（无打包器环境下动态 import 不可用）
+      var T = window.__TAURI__;
+      if (!T || !T.core || !T.core.invoke) return;
+      var metadata = await T.core.invoke('plugin:updater|check');
+      if (!metadata || !metadata.rid) return; // 无可用更新
+      showToast(I18n.t('update.found') + ' ' + (metadata.version || ''), 'info');
+      var channel = new T.core.Channel();
+      channel.onmessage = function (event) {
+        switch (event && event.event) {
+          case 'Started':
+          case 'Progress':
+          case 'Finished':
+            break;
+        }
+      };
+      await T.core.invoke('plugin:updater|download_and_install', { onEvent: channel, rid: metadata.rid });
+      showToast(I18n.t('update.installing'), 'info');
+      await T.core.invoke('plugin:process|restart');
     } catch (e) {
-      // Best-effort update check; ignore failures.
+      console.error('checkForUpdate failed:', e);
     }
   }
 
@@ -117,13 +119,13 @@ var App = (function () {
     // Listen for device revoked
     API.onRevoked(function () {
       showToast(I18n.t('error.revoked'), 'error');
-      logout();
+      _doLogout(false); // 被动退出：回显账号与密码
     });
 
     // Listen for connection lost (heartbeat failed 3 times)
     API.onConnectionLost(function () {
       showToast(I18n.t('error.connectionLost'), 'error');
-      _doLogout(false); // Keep username for quick re-entry
+      _doLogout(false); // 被动退出：回显账号与密码
     });
 
     // ---- Startup: choose auto-login view or login view ----
@@ -186,6 +188,7 @@ var App = (function () {
 
           switchView('login', {
             username: cfg.username || '',
+            password: cfg.password || '',
             error: I18n.t('login.autoLoginFailed') + ': ' + autoError
           });
           return;
@@ -314,9 +317,19 @@ var App = (function () {
     try { await API.stopHeartbeat(); } catch (e) { console.error('stopHeartbeat failed:', e); }
     Panel.cleanup();
     var cfg = await API.loadConfig();
+    var savedUsername = '';
+    var savedPassword = '';
     if (cfg) {
       if (cfg.server_url && cfg.token) {
         try { await API.serverLogout(cfg.server_url, cfg.token); } catch (e) { console.error('serverLogout failed:', e); }
+      }
+      if (clearForm) {
+        // 主动退出：清除已保存密码，不回显
+        cfg.password = '';
+      } else {
+        // 被动退出：回显已保存的账号与密码
+        savedUsername = cfg.username || '';
+        savedPassword = cfg.password || '';
       }
       cfg.token = '';
       try { await API.saveConfig(cfg); } catch (e) { console.error('saveConfig on logout failed:', e); }
@@ -335,7 +348,7 @@ var App = (function () {
       if (userInput) userInput.value = '';
       if (passInput) passInput.value = '';
     }
-    switchView('login');
+    switchView('login', clearForm ? undefined : { username: savedUsername, password: savedPassword });
   }
 
   async function logout() {

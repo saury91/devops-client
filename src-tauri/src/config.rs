@@ -12,6 +12,8 @@ pub struct Config {
     #[serde(default)]
     pub username: String,
     #[serde(default)]
+    pub password: String,
+    #[serde(default)]
     pub nickname: String,
     #[serde(default)]
     pub language: String,
