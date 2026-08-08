@@ -93,6 +93,7 @@ var App = (function () {
       if (titlebar) {
         titlebar.addEventListener('mousedown', function (e) {
           if (e.target.closest('.win-actions')) return;
+          if (e.target.closest('button')) return; // 标题栏按钮（如齿轮）不应触发拖拽
           // Debounce: at most one startDrag per 200ms
           if (_dragTimer) return;
           _dragTimer = setTimeout(function () { _dragTimer = 0; }, 200);

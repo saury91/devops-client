@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -109,13 +111,15 @@ fn main() {
             };
 
             let proxy_state_clone = proxy_state.clone();
-            let icon = match app.default_window_icon() {
-                Some(icon) => icon.clone(),
-                None => {
-                    eprintln!("No default window icon found — tray will use a blank icon");
-                    return Err("missing default window icon".into());
-                }
-            };
+            // macOS 菜单栏使用白色版图标（与其它菜单栏图标风格一致）；其它平台与 Dock 应用图标仍用彩色
+            #[cfg(target_os = "macos")]
+            let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-white.png"))
+                .map_err(|e| format!("failed to load tray icon: {}", e))?;
+            #[cfg(not(target_os = "macos"))]
+            let icon = app
+                .default_window_icon()
+                .ok_or_else(|| "missing default window icon".to_string())?
+                .clone();
 
             let _tray = match TrayIconBuilder::new()
                 .icon(icon)

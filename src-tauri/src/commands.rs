@@ -584,8 +584,13 @@ pub fn open_browser(url: String) -> Result<(), String> {
     let result = {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
+        // 给 URL 加引号，避免 cmd 把查询串中的 & 当作命令分隔符，导致 port 等参数丢失
+        let quoted = format!("\"{}\"", url);
         std::process::Command::new("cmd")
-            .args(["/c", "start", "", &url])
+            .arg("/c")
+            .arg("start")
+            .arg("")
+            .arg(quoted)
             .creation_flags(CREATE_NO_WINDOW)
             .spawn()
     };

@@ -1,10 +1,10 @@
 [package]
 name = "devops-client"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-process = "2"
 tauri-plugin-shell = "2"
