@@ -82,6 +82,10 @@
   "panel.pwChanged": "密码修改成功，请用新密码重新登录",
   "panel.pwChangeFail": "密码修改失败",
   "panel.noServer": "服务器地址不可用",
+  "panel.openFailed": "打开工作台失败",
+  "panel.sessionAbnormal": "会话状态异常，请退出后重新登录",
+  "panel.linkCopied": "链接已复制，可在其他浏览器打开",
+  "panel.copyFailed": "复制失败，请重试",
 
   "settings.testConn": "测试",
   "settings.testing": "测试中...",

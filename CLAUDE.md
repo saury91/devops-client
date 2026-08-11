@@ -118,7 +118,7 @@ UI 表单 → API.doLogin(url, user, pass, deviceName)
   → 成功:
     → 保存 config.json（serverUrl、token、fingerprint、loginAt 等，AES 加密）
     → 启动本地 HTTP 代理 (127.0.0.1:{随机端口})
-    → 启动心跳（每 10s POST /api/auth/device-status，Header X-Session-Id）
+    → 启动心跳（每 30s POST /api/auth/device-status，Header X-Session-Id）
     → 切换到已连接面板
   → pending: 显示"需要管理员审批"
   → error: 显示服务端错误信息
@@ -139,7 +139,7 @@ UI 表单 → API.doLogin(url, user, pass, deviceName)
 
 ### 心跳与离线策略
 
-- 心跳每 10 秒调用 `/api/auth/device-status`，携带 `X-Session-Id` 和 `fingerprint`
+- 心跳每 30 秒调用 `/api/auth/device-status`，携带 `X-Session-Id` 和 `fingerprint`（间隔常量 `HEARTBEAT_INTERVAL_SECS`）
 - 服务端校验 fingerprint 与 session 是否匹配：
   - 匹配：renewal 当前 session 及同 fingerprint 的所有 browser session
   - 不匹配：立即失效当前 session，并踢掉 fingerprint 所属用户的所有 session

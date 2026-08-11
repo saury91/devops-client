@@ -82,6 +82,10 @@
   "panel.pwChanged": "Password changed. Please sign in with your new password.",
   "panel.pwChangeFail": "Failed to change password",
   "panel.noServer": "Server address unavailable",
+  "panel.openFailed": "Failed to open dashboard",
+  "panel.sessionAbnormal": "Session abnormal, please log out and log in again",
+  "panel.linkCopied": "Link copied, open it in another browser",
+  "panel.copyFailed": "Copy failed, please retry",
 
   "settings.testConn": "Test",
   "settings.testing": "Testing...",

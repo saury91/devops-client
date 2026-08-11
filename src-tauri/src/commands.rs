@@ -604,11 +604,27 @@ pub fn open_browser(url: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn open_dashboard(server_url: String, token: String, port: u16) -> Result<(), String> {
+    let url = build_dashboard_url(&server_url, &token, port).await?;
+    open_browser(url)
+}
+
+#[tauri::command]
+pub async fn get_dashboard_url(
+    server_url: String,
+    token: String,
+    port: u16,
+) -> Result<String, String> {
+    build_dashboard_url(&server_url, &token, port).await
+}
+
+/// 构建打开工作台的 exchange URL（创建 exchange token 但不打开浏览器），
+/// 供“长按复制链接”使用，与 open_dashboard 走同一套逻辑。
+async fn build_dashboard_url(server_url: &str, token: &str, port: u16) -> Result<String, String> {
     if token.is_empty() {
-        return open_browser(server_url);
+        return Ok(server_url.trim_end_matches('/').to_string());
     }
 
-    let exchange_token = auth::create_exchange_token(&server_url, &token).await?;
+    let exchange_token = auth::create_exchange_token(server_url, token).await?;
     let base = server_url.trim_end_matches('/');
     let mut url = Url::parse(base).map_err(|e| e.to_string())?;
     url.set_path("/api/auth/exchange-token");
@@ -617,8 +633,11 @@ pub async fn open_dashboard(server_url: String, token: String, port: u16) -> Res
         pairs.append_pair("exchangeToken", &exchange_token);
         pairs.append_pair("port", &port.to_string());
     }
-    open_browser(url.to_string())
+    Ok(url.to_string())
 }
+
+/// 心跳间隔：调大可降低服务端压力（客户端越多越需要），但设备撤销/会话失效检测会变慢
+const HEARTBEAT_INTERVAL_SECS: u64 = 30;
 
 #[tauri::command]
 pub fn start_heartbeat(
@@ -651,7 +670,7 @@ pub fn start_heartbeat(
                 if !cancel.load(Ordering::SeqCst) {
                     break;
                 }
-                tokio::time::sleep(Duration::from_secs(10)).await;
+                tokio::time::sleep(Duration::from_secs(HEARTBEAT_INTERVAL_SECS)).await;
                 if !cancel.load(Ordering::SeqCst) {
                     break;
                 }

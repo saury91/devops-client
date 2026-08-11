@@ -60,6 +60,7 @@ fn main() {
             commands::get_proxy_port,
             commands::open_browser,
             commands::open_dashboard,
+            commands::get_dashboard_url,
             commands::start_heartbeat,
             commands::stop_heartbeat,
             commands::resize_window,

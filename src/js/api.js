@@ -61,6 +61,7 @@ var API = (function () {
     startDrag:     function ()      { return invoke('start_drag'); },
     openBrowser:   function (url)    { return invoke('open_browser', { url: url }); },
     openDashboard: function (serverUrl, token, port) { return invoke('open_dashboard', { serverUrl, token, port }); },
+    getDashboardUrl: function (serverUrl, token, port) { return invoke('get_dashboard_url', { serverUrl, token, port }); },
     startHeartbeat: function (url, fp) { return invoke('start_heartbeat', { serverUrl: url, fingerprint: fp }); },
     stopHeartbeat: function ()       { return invoke('stop_heartbeat'); },
     onRevoked:     function (cb) { return _listenOnce('device-revoked', cb); },

@@ -604,6 +604,11 @@ hr { border: none; border-top: 1px solid rgba(100,116,139,0.1); margin: 14px 0; 
   opacity: 0.7;
   pointer-events: none;
 }
+.monitor-ball.long-press-armed {
+  border-color: rgba(0, 229, 255, 0.9);
+  box-shadow: 0 0 48px rgba(0, 229, 255, 0.4), inset 0 0 24px rgba(0, 229, 255, 0.12);
+  transform: scale(0.96);
+}
 
 /* Liquid slosh at the bottom of the timer ball, clipped to the circle */
 .ball-liquid {

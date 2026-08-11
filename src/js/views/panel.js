@@ -8,6 +8,9 @@ var Panel = (function () {
   var _logs = [];
   var _ballClickHandler;
   var _openingBrowser = false;
+  var LONG_PRESS_MS = 1000;
+  var _pressTimer = 0;
+  var _longPressed = false;
   var _lastHeartbeatTime = null;
   var _serverLatency = '-';
   var _lastEvent = '-';
@@ -63,8 +66,16 @@ var Panel = (function () {
 
     var ball = document.getElementById('monitor-ball');
     if (ball) {
-      _ballClickHandler = function () { openDashboard(ball); };
+      _ballClickHandler = function (e) {
+        // 长按已触发复制，忽略随后的 click
+        if (_longPressed) { _longPressed = false; return; }
+        openDashboard(ball);
+      };
       ball.addEventListener('click', _ballClickHandler);
+      ball.addEventListener('pointerdown', onBallPressStart);
+      ball.addEventListener('pointerup', onBallPressEnd);
+      ball.addEventListener('pointerleave', onBallPressCancel);
+      ball.addEventListener('pointercancel', onBallPressCancel);
     }
 
     _timerId = setInterval(updateUptime, 50);
@@ -360,31 +371,135 @@ var Panel = (function () {
     if (_timerId) clearInterval(_timerId);
     document.removeEventListener('visibilitychange', onVisibilityChange);
     var ball = document.getElementById('monitor-ball');
-    if (ball && _ballClickHandler) ball.removeEventListener('click', _ballClickHandler);
+    if (ball) {
+      if (_ballClickHandler) ball.removeEventListener('click', _ballClickHandler);
+      ball.removeEventListener('pointerdown', onBallPressStart);
+      ball.removeEventListener('pointerup', onBallPressEnd);
+      ball.removeEventListener('pointerleave', onBallPressCancel);
+      ball.removeEventListener('pointercancel', onBallPressCancel);
+    }
     _ballClickHandler = null;
+    if (_pressTimer) { clearTimeout(_pressTimer); _pressTimer = 0; }
+    _longPressed = false;
     _openingBrowser = false;
     _deviceInfo = null;
     _avatarClicks = 0;
     Wave.stop();
   }
 
+  function onBallPressStart() {
+    // 蓄力阶段：长按满阈值才标记，复制动作延后到松开时执行，普通点击绝不误触
+    _longPressed = false;
+    if (_pressTimer) { clearTimeout(_pressTimer); _pressTimer = 0; }
+    var ball = document.getElementById('monitor-ball');
+    if (ball) ball.classList.remove('long-press-armed');
+    _pressTimer = setTimeout(function () {
+      _pressTimer = 0;
+      _longPressed = true;
+      var b = document.getElementById('monitor-ball');
+      if (b) b.classList.add('long-press-armed');
+    }, LONG_PRESS_MS);
+  }
+
+  function onBallPressEnd() {
+    // 松开：若已蓄力（长按≥阈值）则复制；随后 click 会消费 _longPressed 而不再打开
+    if (_pressTimer) { clearTimeout(_pressTimer); _pressTimer = 0; }
+    var ball = document.getElementById('monitor-ball');
+    if (ball) ball.classList.remove('long-press-armed');
+    if (_longPressed) {
+      copyDashboardUrl();
+    }
+  }
+
+  function onBallPressCancel() {
+    // 移出球/指针取消：撤销蓄力，避免误复制
+    if (_pressTimer) { clearTimeout(_pressTimer); _pressTimer = 0; }
+    _longPressed = false;
+    var ball = document.getElementById('monitor-ball');
+    if (ball) ball.classList.remove('long-press-armed');
+  }
+
+  // 长按球球：生成可打开的 exchange URL 并复制，供用户自行选择浏览器打开
+  async function copyDashboardUrl() {
+    if (!_state || !_state.token) return;
+    var port = _state.port || 0;
+    try {
+      var live = await API.getProxyPort();
+      if (live) port = live;
+    } catch (_) {}
+    try {
+      var url = await API.getDashboardUrl(_state.serverUrl, _state.token, port);
+      var ok = await copyText(url);
+      showToast(ok ? I18n.t('panel.linkCopied') : I18n.t('panel.copyFailed'));
+    } catch (e) {
+      console.error('copyDashboardUrl failed:', e);
+      var detail = (typeof e === 'string') ? e : (e && e.message) ? e.message : '';
+      showToast(detail || I18n.t('panel.openFailed'));
+    }
+  }
+
+  // 长按回调里已无用户手势，clipboard API 可能被拒，回退到 execCommand('copy')
+  function copyText(text) {
+    return navigator.clipboard.writeText(text).then(function () {
+      return true;
+    }).catch(function () {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try {
+        ok = document.execCommand('copy');
+      } catch (e) {
+        ok = false;
+      }
+      document.body.removeChild(ta);
+      return ok;
+    });
+  }
+
   async function openDashboard(ball) {
+    // 单飞：操作未结束前忽略新点击，避免多个打开请求重叠导致“时好时坏”
     if (!_state || _openingBrowser) return;
     _openingBrowser = true;
     if (ball) ball.classList.add('opening');
 
     try {
-      if (_state.token) {
-        try {
-          await API.openDashboard(_state.serverUrl, _state.token, _state.port || 0);
-          return;
-        } catch (_) {}
+      if (!_state.token) {
+        // 无会话：直接打开服务器首页（此时显示登录页是合理的）
+        await API.openBrowser(_state.serverUrl);
+        return;
       }
-      await API.openBrowser(_state.serverUrl);
+
+      // 每次点击实时读取代理端口，避免 exchange 页面用失效端口做本地 ping 校验
+      var port = _state.port || 0;
+      try {
+        var live = await API.getProxyPort();
+        if (live) port = live;
+      } catch (_) {}
+
+      try {
+        await API.openDashboard(_state.serverUrl, _state.token, port);
+      } catch (e) {
+        console.error('openDashboard failed:', e);
+        showToast(friendlyOpenError(e));
+      }
     } finally {
+      // 无论成败都复位，保证不会永久卡死
       _openingBrowser = false;
       if (ball) ball.classList.remove('opening');
     }
+  }
+
+  function friendlyOpenError(e) {
+    var msg = (typeof e === 'string') ? e : (e && e.message) ? e.message : '';
+    // 服务端会话异常/拦截器重定向等场景，直接提示重新登录，避免让用户反复点
+    if (/parse response|会话已失效|会话|session|401|\/login/i.test(msg)) {
+      return I18n.t('panel.sessionAbnormal');
+    }
+    return msg || I18n.t('panel.openFailed');
   }
 
   // --- Change password modal ---
