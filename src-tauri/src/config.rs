@@ -50,6 +50,17 @@ pub fn load_config() -> Option<Config> {
     let encrypted = match std::fs::read(&path) {
         Ok(b) => b,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            log_error("load_config", &format!("read access denied, repairing ACL: {}", e));
+            repair_file_acl(&path);
+            match std::fs::read(&path) {
+                Ok(b) => b,
+                Err(e2) => {
+                    log_error("load_config", &format!("read failed after ACL repair: {}", e2));
+                    return None;
+                }
+            }
+        }
         Err(e) => {
             log_error("load_config", &format!("read failed: {}", e));
             return None;
@@ -103,11 +114,21 @@ pub fn save_config(config: &Config) -> Result<(), String> {
         e
     })?;
     let path = dir.join("config.json");
-    std::fs::write(&path, encrypted).map_err(|e| {
-        let m = format!("Failed to write config: {}", e);
-        log_error("save_config", &m);
-        m
-    })?;
+    if let Err(e) = std::fs::write(&path, &encrypted) {
+        if e.kind() == std::io::ErrorKind::PermissionDenied {
+            log_error("save_config", &format!("write access denied, repairing ACL: {}", e));
+            repair_file_acl(&path);
+            std::fs::write(&path, &encrypted).map_err(|e2| {
+                let m = format!("Failed to write config: {}", e2);
+                log_error("save_config", &m);
+                m
+            })?;
+        } else {
+            let m = format!("Failed to write config: {}", e);
+            log_error("save_config", &m);
+            return Err(m);
+        }
+    }
     restrict_file_permissions(&path).map_err(|e| {
         log_error("save_config", &e);
         e
@@ -137,24 +158,28 @@ fn restrict_file_permissions(path: &std::path::Path) -> Result<(), String> {
 }
 
 #[cfg(target_os = "windows")]
-fn restrict_file_permissions(path: &std::path::Path) -> Result<(), String> {
+fn restrict_file_permissions(_path: &std::path::Path) -> Result<(), String> {
+    // 不做 ACL 收紧：icacls /inheritance:r /grant:r 会剥离当前用户对文件的继承权限，
+    // 一旦 USERNAME 与登录账户不一致，后续读写即报"拒绝访问 (os error 5)"。
+    // 文件位于用户私有目录且内容已加密，依赖默认 ACL 即可。
+    Ok(())
+}
+
+/// 恢复文件继承的 ACL（用于修复旧版本 icacls 剥离权限导致的"拒绝访问"）。
+#[cfg(target_os = "windows")]
+fn repair_file_acl(path: &std::path::Path) {
     use std::os::windows::process::CommandExt;
     use std::process::Command;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
-    let path_str = path.to_string_lossy().into_owned();
-    let perm_str = std::env::var("USERNAME").unwrap_or_else(|_| "User".to_string()) + ":(R,W)";
-    // 非阻塞执行：icacls 仅作权限加固，阻塞等待可能在某些 Win10 上导致保存"无反应"
     let _ = Command::new("icacls")
-        .args([
-            path_str.as_str(),
-            "/inheritance:r",
-            "/grant:r",
-            perm_str.as_str(),
-        ])
+        .arg(path.to_string_lossy().into_owned())
+        .arg("/reset")
         .creation_flags(CREATE_NO_WINDOW)
-        .spawn();
-    Ok(())
+        .output();
 }
+
+#[cfg(not(target_os = "windows"))]
+fn repair_file_acl(_path: &std::path::Path) {}
 
 #[cfg(not(any(unix, target_os = "windows")))]
 fn restrict_file_permissions(_path: &std::path::Path) -> Result<(), String> {
