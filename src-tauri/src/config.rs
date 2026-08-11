@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -27,32 +28,90 @@ pub fn get_settings_dir() -> PathBuf {
         .join(".devops-client")
 }
 
+/// 追加写入错误日志（Windows 无控制台，配置保存/加载失败需落盘才能排查）。
+pub fn log_error(context: &str, detail: &str) {
+    let dir = get_settings_dir();
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let path = dir.join("error.log");
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        use std::io::Write;
+        let _ = writeln!(f, "[{}] {}: {}", secs, context, detail);
+    }
+}
+
 pub fn load_config() -> Option<Config> {
     let path = get_settings_dir().join("config.json");
-    let encrypted = std::fs::read(&path).ok()?;
-    let data = crate::crypto::decrypt(&encrypted).ok()?;
-    serde_json::from_slice(&data).ok()
+    let encrypted = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            log_error("load_config", &format!("read failed: {}", e));
+            return None;
+        }
+    };
+    let data = match crate::crypto::decrypt(&encrypted) {
+        Ok(d) => d,
+        Err(e) => {
+            log_error("load_config", &format!("decrypt failed: {}", e));
+            return None;
+        }
+    };
+    match serde_json::from_slice(&data) {
+        Ok(c) => Some(c),
+        Err(e) => {
+            log_error("load_config", &format!("json parse failed: {}", e));
+            None
+        }
+    }
 }
 
 pub fn save_config(config: &Config) -> Result<(), String> {
     let dir = get_settings_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create config dir: {}", e))?;
-    restrict_dir_permissions(&dir)?;
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        let m = format!("Failed to create config dir: {}", e);
+        log_error("save_config", &m);
+        m
+    })?;
+    restrict_dir_permissions(&dir).map_err(|e| {
+        log_error("save_config", &e);
+        e
+    })?;
 
     // Validate language if set
     if !config.language.is_empty() && !SUPPORTED_LANGUAGES.contains(&config.language.as_str()) {
-        return Err(format!(
+        let m = format!(
             "Unsupported language '{}'. Supported: {:?}",
             config.language, SUPPORTED_LANGUAGES
-        ));
+        );
+        log_error("save_config", &m);
+        return Err(m);
     }
 
-    let data =
-        serde_json::to_vec(config).map_err(|e| format!("Failed to serialize config: {}", e))?;
-    let encrypted = crate::crypto::encrypt(&data)?;
+    let data = serde_json::to_vec(config).map_err(|e| {
+        let m = format!("Failed to serialize config: {}", e);
+        log_error("save_config", &m);
+        m
+    })?;
+    let encrypted = crate::crypto::encrypt(&data).map_err(|e| {
+        log_error("save_config", &e);
+        e
+    })?;
     let path = dir.join("config.json");
-    std::fs::write(&path, encrypted).map_err(|e| format!("Failed to write config: {}", e))?;
-    restrict_file_permissions(&path)?;
+    std::fs::write(&path, encrypted).map_err(|e| {
+        let m = format!("Failed to write config: {}", e);
+        log_error("save_config", &m);
+        m
+    })?;
+    restrict_file_permissions(&path).map_err(|e| {
+        log_error("save_config", &e);
+        e
+    })?;
     Ok(())
 }
 
@@ -84,6 +143,7 @@ fn restrict_file_permissions(path: &std::path::Path) -> Result<(), String> {
     const CREATE_NO_WINDOW: u32 = 0x08000000;
     let path_str = path.to_string_lossy().into_owned();
     let perm_str = std::env::var("USERNAME").unwrap_or_else(|_| "User".to_string()) + ":(R,W)";
+    // 非阻塞执行：icacls 仅作权限加固，阻塞等待可能在某些 Win10 上导致保存"无反应"
     let _ = Command::new("icacls")
         .args([
             path_str.as_str(),
@@ -92,7 +152,7 @@ fn restrict_file_permissions(path: &std::path::Path) -> Result<(), String> {
             perm_str.as_str(),
         ])
         .creation_flags(CREATE_NO_WINDOW)
-        .output();
+        .spawn();
     Ok(())
 }
 

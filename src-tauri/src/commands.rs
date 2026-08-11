@@ -392,7 +392,10 @@ pub fn load_config_cmd() -> Result<Option<Config>, String> {
 #[tauri::command]
 pub fn save_config_cmd(config: Config) -> Result<(), String> {
     if !config.server_url.is_empty() {
-        validate_server_url(&config.server_url)?;
+        if let Err(e) = validate_server_url(&config.server_url) {
+            crate::config::log_error("save_config_cmd", &e);
+            return Err(e);
+        }
     }
     save_config(&config).map_err(|e| e.to_string())
 }
