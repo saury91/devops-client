@@ -6,7 +6,14 @@ pub enum Lang {
     Zh,
 }
 
+static DETECTED_LANG: std::sync::OnceLock<Lang> = std::sync::OnceLock::new();
+
+/// 检测一次并缓存，避免每次调用都拉起 PowerShell 子进程弹窗。
 pub fn detect_lang() -> Lang {
+    *DETECTED_LANG.get_or_init(detect_lang_impl)
+}
+
+fn detect_lang_impl() -> Lang {
     // Check environment variables for locale
     for var in &["LANG", "LC_ALL", "LC_MESSAGES"] {
         if let Ok(val) = std::env::var(var) {
@@ -26,8 +33,12 @@ pub fn detect_lang() -> Lang {
 
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        // -NoProfile 避免加载用户配置文件；CREATE_NO_WINDOW 防止 PowerShell 控制台弹窗
         if let Ok(output) = std::process::Command::new("powershell")
-            .args(["-Command", "(Get-Culture).Name"])
+            .args(["-NoProfile", "-Command", "(Get-Culture).Name"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
         {
             let s = String::from_utf8_lossy(&output.stdout);
