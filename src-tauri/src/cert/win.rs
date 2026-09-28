@@ -11,13 +11,21 @@
 //! guarantee [`super::macos`] gets from the keychain, and it is what makes the server's fingerprint
 //! check mean "this machine" rather than "whoever holds a copy of a file".
 //!
-//! Two details decide whether a browser can actually use the result, and both are easy to miss:
+//! Three details decide whether a browser can actually use the result, and all of them are easy to
+//! miss:
 //!
 //! * `NCryptCreatePersistedKey` alone leaves a key nothing points at. The certificate has to be
-//!   linked to it through `CERT_KEY_PROV_INFO_PROP_ID` with `dwKeySpec = CERT_NCRYPT_KEY_SPEC` and
-//!   the KSP name, because that property is what `CryptAcquireCertificatePrivateKey` follows when
-//!   a browser asks for a private key. Without it the store holds a public-only certificate and the
-//!   handshake silently proceeds without a client certificate.
+//!   linked to it through `CERT_KEY_PROV_INFO_PROP_ID` and the KSP name, because that property is
+//!   what `CryptAcquireCertificatePrivateKey` follows when a browser asks for a private key. Without
+//!   it the store holds a public-only certificate and the handshake silently proceeds without a
+//!   client certificate.
+//! * `dwKeySpec` inside that property decides whether Schannel throws the certificate away. Schannel
+//!   answers `AcquireCredentialsHandle` with `SEC_E_UNKNOWN_CREDENTIALS` when the field carries
+//!   `CERT_NCRYPT_KEY_SPEC`, even though `CryptAcquireCertificatePrivateKey` — the call the
+//!   documentation points at — succeeds for the very same certificate. Chromium never consults the
+//!   field, which is why a browser presents the certificate while `curl`, .NET and WinHTTP all fail
+//!   with what looks like a missing key. [`schannel_accepts`] therefore checks the credential
+//!   acquisition itself, and [`install_certificate`] keeps whichever key spec Schannel accepts.
 //! * CNG emits ECDSA signatures as raw `r || s`, while an X.509 signature BIT STRING must hold a
 //!   DER `ECDSA-Sig-Value`. Converting in [`ecdsa_sig_to_der`] is therefore mandatory rather than
 //!   cosmetic: skipping it yields a certificate every verifier rejects.
@@ -33,6 +41,13 @@ use super::{
 };
 use rcgen::{RemoteKeyPair, SignatureAlgorithm, PKCS_ECDSA_P256_SHA256};
 use sha2::{Digest, Sha256};
+// Schannel lives in `Authentication::Identity` rather than in `Cryptography`, and its credential
+// handle type in `Credentials`, so the guard against the `dwKeySpec` trap pulls in two more modules.
+use windows_sys::Win32::Security::Authentication::Identity::{
+    AcquireCredentialsHandleW, FreeCredentialsHandle, SCHANNEL_CRED, SCHANNEL_CRED_VERSION,
+    SCH_CRED_NO_DEFAULT_CREDS, SECPKG_CRED_OUTBOUND, UNISP_NAME_W,
+};
+use windows_sys::Win32::Security::Credentials::SecHandle;
 use windows_sys::Win32::Security::Cryptography::{
     CertAddEncodedCertificateToStore, CertCloseStore, CertDeleteCertificateFromStore,
     CertDuplicateCertificateContext, CertEnumCertificatesInStore, CertFreeCertificateContext,
@@ -65,6 +80,15 @@ const ENCODING: u32 = X509_ASN_ENCODING | PKCS_7_ASN_ENCODING;
 /// [`is_our_container`] accepts that exact value too and a later [`remove`] can still clean up an
 /// install left behind by such a build.
 const KEY_PREFIX: &str = CERT_LABEL;
+
+/// `AT_KEYEXCHANGE`, the value Windows' own certificate tooling writes into
+/// `CRYPT_KEY_PROV_INFO::dwKeySpec` for a key held by a CNG provider.
+///
+/// The documentation prescribes `CERT_NCRYPT_KEY_SPEC` for CNG instead, and writing that is what used
+/// to make every Schannel handshake fail with `SEC_E_UNKNOWN_CREDENTIALS` while Chromium kept working.
+/// Since neither value is reliable on its own, [`install_certificate`] writes this one first and falls
+/// back to `CERT_NCRYPT_KEY_SPEC` only if Schannel rejects it.
+const KEY_SPEC_AT_KEYEXCHANGE: u32 = 0;
 
 /// `2.5.4.3` — the OID of the `CN` attribute, in the NUL terminated ANSI form that
 /// `CertGetNameStringW` expects for `CERT_NAME_ATTR_TYPE`.
@@ -592,8 +616,14 @@ fn encoded_certificate(context: *const CERT_CONTEXT) -> Vec<u8> {
 /// — the call every browser makes when the server asks for a client certificate — resolves a
 /// private key through `CERT_KEY_PROV_INFO_PROP_ID`. A certificate added without that property is
 /// public-only, and the handshake then quietly proceeds as if the device had no certificate.
-/// `CERT_NCRYPT_KEY_SPEC` in `dwKeySpec` is what directs Windows to a CNG provider rather than to a
-/// legacy CSP, which is where the key actually lives.
+///
+/// Linking it is still not enough, because `dwKeySpec` has to name a key spec Schannel is willing to
+/// build a credential from. The two candidates are tried in turn rather than one being assumed, since
+/// `CERT_NCRYPT_KEY_SPEC` — the value the documentation prescribes for a CNG provider — is exactly the
+/// one that made Schannel answer `SEC_E_UNKNOWN_CREDENTIALS` on the machines this was tested on. The
+/// certificate is kept only once [`schannel_accepts`] agrees, which is the same credential acquisition
+/// a real `curl` or .NET handshake performs; that turns a silently unusable identity into a reported
+/// installation failure.
 fn install_certificate(der: &[u8], container: &[u16]) -> Result<(), CertError> {
     let store = open_store()?;
     let mut context: *mut CERT_CONTEXT = std::ptr::null_mut();
@@ -615,40 +645,115 @@ fn install_certificate(der: &[u8], container: &[u16]) -> Result<(), CertError> {
     // `CRYPT_KEY_PROV_INFO` declares its strings as writable, so the container name is copied into a
     // buffer that outlives the call setting the property.
     let mut name = container.to_vec();
-    let info = CRYPT_KEY_PROV_INFO {
-        pwszContainerName: name.as_mut_ptr(),
-        // Taken straight from the windows-sys binding rather than repeated as a literal, so the two
-        // cannot drift apart. The cast only drops `const`: the API reads this static string.
-        pwszProvName: MS_KEY_STORAGE_PROVIDER as *mut u16,
-        dwProvType: 0, // unused by a CNG provider, but the struct is shared with legacy CSPs
-        dwFlags: 0,
-        cProvParam: 0,
-        rgProvParam: std::ptr::null_mut(),
-        dwKeySpec: CERT_NCRYPT_KEY_SPEC,
-    };
-    let linked = unsafe {
-        CertSetCertificateContextProperty(
-            context,
-            CERT_KEY_PROV_INFO_PROP_ID,
-            0,
-            &info as *const CRYPT_KEY_PROV_INFO as *const core::ffi::c_void,
-        )
-    };
-    if linked == 0 {
+    let mut failure = platform_error("link certificate to the KSP key");
+    let mut accepted = false;
+    for key_spec in [KEY_SPEC_AT_KEYEXCHANGE, CERT_NCRYPT_KEY_SPEC] {
+        let info = CRYPT_KEY_PROV_INFO {
+            pwszContainerName: name.as_mut_ptr(),
+            // Taken straight from the windows-sys binding rather than repeated as a literal, so the two
+            // cannot drift apart. The cast only drops `const`: the API reads this static string.
+            pwszProvName: MS_KEY_STORAGE_PROVIDER as *mut u16,
+            dwProvType: 0, // unused by a CNG provider, but the struct is shared with legacy CSPs
+            dwFlags: 0,
+            cProvParam: 0,
+            rgProvParam: std::ptr::null_mut(),
+            dwKeySpec: key_spec,
+        };
+        let linked = unsafe {
+            CertSetCertificateContextProperty(
+                context,
+                CERT_KEY_PROV_INFO_PROP_ID,
+                0,
+                &info as *const CRYPT_KEY_PROV_INFO as *const core::ffi::c_void,
+            )
+        };
+        if linked == 0 {
+            failure = platform_error("link certificate to the KSP key");
+            continue;
+        }
+        if schannel_accepts(context) {
+            accepted = true;
+            break;
+        }
+        // Rewriting the property is enough to move on to the next candidate: `dwKeySpec` is the only
+        // field that differs, and the container, the provider and the key itself stay untouched.
+        failure = CertError::Platform(format!(
+            "Schannel refused the certificate with dwKeySpec=0x{key_spec:08X}"
+        ));
+    }
+    if !accepted {
         // Withdraw the certificate that was just added. Leaving it behind would make `status` report
-        // an identity whose private key no browser can reach: under `cert-mode=enforce` that is worse
-        // than having no certificate at all, because the device looks bound while every handshake
-        // fails. Also required by staged renewal — a certificate without a key is a leftover nobody
-        // can sign with. `CertDeleteCertificateFromStore` frees the context itself, failure included.
+        // an identity whose private key no handshake can reach: under `cert-mode=enforce` that is
+        // worse than having no certificate at all, because the device looks bound while every
+        // handshake fails. Also required by staged renewal — a certificate without a usable key is a
+        // leftover nobody can sign with. `CertDeleteCertificateFromStore` frees the context itself,
+        // failure included.
         unsafe { CertDeleteCertificateFromStore(context) };
         unsafe { CertCloseStore(store, 0) };
-        return Err(platform_error("link certificate to the KSP key"));
+        return Err(failure);
     }
 
     // Ours to release: the context returned above is a copy, not a store handle.
     unsafe { CertFreeCertificateContext(context) };
     unsafe { CertCloseStore(store, 0) };
     Ok(())
+}
+
+/// Whether Schannel will build a client credential from this certificate.
+///
+/// This is the guard the link above is worth nothing without. `CERT_KEY_PROV_INFO_PROP_ID` can be set
+/// successfully and still yield a certificate that every Schannel handshake rejects with
+/// `SEC_E_UNKNOWN_CREDENTIALS`, which is reported to the user as "the credentials supplied to the
+/// package were not recognized" — indistinguishable from a missing key. The obvious check does not
+/// catch it: `CryptAcquireCertificatePrivateKey` happily returns the key for both `dwKeySpec` values,
+/// so only the credential acquisition itself reports the problem. Chromium reads the certificate
+/// without ever calling this, which is how a certificate can work in the browser and nowhere else.
+///
+/// `SCH_CRED_NO_DEFAULT_CREDS` keeps the probe to this one certificate, so a machine-wide default
+/// credential cannot make a rejected certificate look acceptable.
+fn schannel_accepts(certificate: *const CERT_CONTEXT) -> bool {
+    // The interface expects a mutable array of certificate pointers and reads it during the call, so
+    // the array lives here rather than being built as a temporary.
+    let mut chain = [certificate as *mut CERT_CONTEXT];
+    let cred = SCHANNEL_CRED {
+        dwVersion: SCHANNEL_CRED_VERSION,
+        cCreds: 1,
+        paCred: chain.as_mut_ptr(),
+        hRootStore: std::ptr::null_mut(),
+        cMappers: 0,
+        aphMappers: std::ptr::null_mut(),
+        cSupportedAlgs: 0,
+        palgSupportedAlgs: std::ptr::null_mut(),
+        grbitEnabledProtocols: 0, // let Schannel pick, the same way a real handshake does
+        dwMinimumCipherStrength: 0,
+        dwMaximumCipherStrength: 0,
+        dwSessionLifespan: 0,
+        dwFlags: SCH_CRED_NO_DEFAULT_CREDS,
+        dwCredFormat: 0,
+    };
+    let mut credentials = SecHandle {
+        dwLower: 0,
+        dwUpper: 0,
+    };
+    let status = unsafe {
+        AcquireCredentialsHandleW(
+            std::ptr::null(),
+            UNISP_NAME_W,
+            SECPKG_CRED_OUTBOUND,
+            std::ptr::null(),
+            &cred as *const SCHANNEL_CRED as *const core::ffi::c_void,
+            None, // no pass-through key callback: only a credential is being validated here
+            std::ptr::null(),
+            &mut credentials,
+            std::ptr::null_mut(),
+        )
+    };
+    if status < 0 {
+        return false;
+    }
+    // Only reached when the credential was handed out, so the handle is valid and has to go back.
+    let _ = unsafe { FreeCredentialsHandle(&credentials) };
+    true
 }
 
 /// Deletes every KSP container this client created.

@@ -54,6 +54,10 @@ keyring = { version = "3", features = ["apple-native"] }
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Security",
+    # `Cryptography` 放证书与 CNG 接口，Schannel 的凭据校验在 `Authentication_Identity`，
+    # 而它的凭据句柄类型 `SecHandle` 单独放在 `Credentials`，三处都用得到。
+    "Win32_Security_Authentication_Identity",
+    "Win32_Security_Credentials",
     "Win32_Security_Cryptography",
 ] }
 keyring = { version = "3", features = ["windows-native"] }
