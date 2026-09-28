@@ -35,7 +35,22 @@ var LoginView = (function () {
       String(date.getSeconds()).padStart(2, '0');
   }
 
+  // 登录是否正在进行中。Enter 是直接调用 handleLogin 的，绕过了按钮的 disabled，
+  // 连按 Enter 或双击登录会让两条登录流程并发跑：各自 do_login、各自 startProxy、
+  // 各自写 config，可能起两个代理线程并互相覆盖配置。
+  var inFlight = false;
+
   async function handleLogin() {
+    if (inFlight) return;
+    inFlight = true;
+    try {
+      await doLogin();
+    } finally {
+      inFlight = false;
+    }
+  }
+
+  async function doLogin() {
     var user = document.getElementById('user-input').value.trim();
     var pass = document.getElementById('pass-input').value;
     var btn = document.getElementById('login-btn');
@@ -85,7 +100,10 @@ var LoginView = (function () {
           login_at: loginTime,
           username: user,
           password: pass,
-          nickname: nickname
+          nickname: nickname,
+          // 后端判定本次登录是否已把证书登记到服务端：为 false 时下次启动会被要求重新登录
+          // 一次，让登记有机会重试；装不了证书的机器按已登记处理，不会反复要求登录。
+          cert_registered: !!result.certRegistered
         });
 
         App.switchView('panel', {

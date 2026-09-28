@@ -6,7 +6,6 @@ use tokio::sync::oneshot;
 pub struct ProxyState {
     pub running: AtomicBool,
     pub port: Mutex<Option<u16>>,
-    pub fingerprint: Mutex<String>,
     pub shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
     pub start_lock: Mutex<()>,
 }

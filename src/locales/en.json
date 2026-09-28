@@ -13,6 +13,7 @@
   "login.connFailed": "Connection failed",
   "login.autoLoggingIn": "Auto logging in",
   "login.autoLoginFailed": "Auto login failed",
+  "login.certReloginRequired": "Sign in once more to register the device certificate",
 
   "panel.title": "DevOps Client",
   "panel.connected": "CONNECTED",
@@ -21,9 +22,11 @@
   "panel.deviceId": "Device ID",
   "panel.localPort": "Port",
   "panel.openDashboard": "Dashboard",
+  "panel.opening": "Opening",
   "panel.quit": "Logout",
   "panel.tabWave": "Agent",
   "panel.tabLog": "Log",
+  "panel.ballHint": "Click to open dashboard · Long-press to copy link",
   "panel.nickname": "Nick",
   "panel.account": "Account",
   "panel.loginTime": "Login",
@@ -40,6 +43,7 @@
   "settings.langEn": "English",
   "settings.save": "Save",
   "settings.saved": "Saved",
+  "settings.serverChanged": "Server address changed, please sign in again",
 
   "error.serverError": "Server returned an error",
   "error.revoked": "Device has been revoked by admin.",
@@ -54,6 +58,8 @@
   "panel.settings": "Settings",
   "panel.deviceInfo": "Device Info",
   "panel.deviceOs": "OS",
+  "panel.deviceHostname": "Hostname",
+  "panel.deviceOsVersion": "OS Version",
   "panel.viewDevice": "View",
   "panel.deviceSerial": "S/N",
   "panel.deviceModel": "Model",
@@ -71,6 +77,7 @@
   "panel.fingerprintCopied": "Fingerprint copied to clipboard",
   "panel.exportLog": "Export",
   "panel.logExported": "Log saved",
+  "panel.logExportFailed": "Failed to export log",
 
   "panel.changePw": "CHANGE PASSWORD",
   "panel.oldPw": "Old Password",
@@ -84,7 +91,7 @@
   "panel.noServer": "Server address unavailable",
   "panel.openFailed": "Failed to open dashboard",
   "panel.sessionAbnormal": "Session abnormal, please log out and log in again",
-  "panel.linkCopied": "Link copied, open it in another browser",
+  "panel.linkCopied": "Link copied, dashboard opened",
   "panel.copyFailed": "Copy failed, please retry",
 
   "settings.testConn": "Test",
@@ -92,6 +99,24 @@
   "settings.connOk": "Connected",
   "settings.connFail": "Failed",
 
-  "update.found": "New version available",
-  "update.installing": "Installing update"
+  "settings.update": "App Update",
+  "settings.checkUpdate": "CHECK",
+  "settings.installUpdate": "INSTALL",
+  "settings.currentVersion": "Current Version",
+
+  "update.found": "New version available: {version}",
+  "update.checking": "Checking for updates...",
+  "update.upToDate": "You are on the latest version",
+  "update.checkFailed": "Update check failed",
+  "update.unsupported": "Auto-update is unavailable here",
+  "update.downloading": "Downloading update...",
+  "update.downloadingOf": "Downloading update ({size})...",
+  "update.downloaded": "Downloaded {size}...",
+  "update.installing": "Installing update...",
+  "update.restarting": "Restarting to finish the update...",
+  "update.installFailed": "Update failed",
+
+  "window.hide": "Hide",
+  "window.minimize": "Minimize",
+  "window.close": "Close"
 }

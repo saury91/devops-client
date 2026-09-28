@@ -35,9 +35,18 @@ check:
 fmt:
     cd src-tauri && cargo fmt
 
-# Run cargo clippy
+# Run cargo clippy.
+# 必须带 --all-targets：CI 用的是 `--all-targets`，少了它就不会检查测试代码，
+# 于是本地 lint 全绿、CI 却在 tests 里报错。
 lint:
-    cd src-tauri && cargo clippy -- -D warnings
+    cd src-tauri && cargo clippy --all-targets -- -D warnings
+
+# Run the Rust test suite
+test:
+    cd src-tauri && cargo test
+
+# Everything CI will check, in CI order
+ci: check fmt test lint
 
 # Clean build artifacts
 clean:

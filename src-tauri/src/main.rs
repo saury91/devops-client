@@ -6,20 +6,22 @@ use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
 use devops_client::{
-    commands, fingerprint, i18n,
+    commands, config, i18n,
     state::{HeartbeatState, ProxyState},
 };
 
 fn main() {
-    // Generate fingerprint on startup
-    let _fp = fingerprint::get_or_create_fingerprint();
+    // 必须最先装：托盘构建失败、后台线程 panic 这些都发生在后面，而 Windows 上没有控制台，
+    // 不落盘就等于什么都没说。装在这里可以保证此后任何一次 panic 都能被「导出日志」带回来。
+    config::install_panic_hook();
 
+    // 这里原本每次都调一次 `get_or_create_fingerprint()` 并把返回值丢掉，等于启动时白跑一遍
+    // Argon2 解密和机器识别。设备密钥是懒创建的，前端加载时会走 get_fingerprint 命令。
     let lang = i18n::detect_lang();
 
     let proxy_state = Arc::new(ProxyState {
         running: AtomicBool::new(false),
         port: Mutex::new(None),
-        fingerprint: Mutex::new(String::new()),
         shutdown_tx: Mutex::new(None),
         start_lock: Mutex::new(()),
     });
@@ -34,7 +36,6 @@ fn main() {
         .manage(proxy_state.clone())
         .manage(heartbeat_state.clone())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -63,6 +64,8 @@ fn main() {
             commands::get_dashboard_url,
             commands::start_heartbeat,
             commands::stop_heartbeat,
+            commands::get_cert_status,
+            commands::install_device_cert,
             commands::resize_window,
             commands::minimize_window,
             commands::hide_window,
@@ -71,6 +74,7 @@ fn main() {
             commands::get_device_info,
             commands::test_connection,
             commands::export_log_file,
+            commands::read_error_log,
             commands::export_device_key,
             commands::import_device_key,
         ])
@@ -88,25 +92,33 @@ fn main() {
                 let _ = window.set_title(window_title);
             }
 
+            // 托盘相关失败都会带 Err 逃出 setup，最终变成 build() 的 panic：没有托盘就等于没有
+            // 常驻入口，失败必须中止启动。但 Windows 上没有控制台（本文件第一行就是
+            // `windows_subsystem = "windows"`），panic 的内容没人看得见，所以先落一份日志。
             let open_item = match MenuItemBuilder::with_id("open", open_label).build(app) {
                 Ok(item) => item,
                 Err(e) => {
-                    eprintln!("Failed to create menu item 'open': {}", e);
+                    config::log_error("tray", &format!("failed to create menu item 'open': {}", e));
                     return Err(Box::new(e));
                 }
             };
             let quit_item = match MenuItemBuilder::with_id("quit", quit_label).build(app) {
                 Ok(item) => item,
                 Err(e) => {
-                    eprintln!("Failed to create menu item 'quit': {}", e);
+                    config::log_error("tray", &format!("failed to create menu item 'quit': {}", e));
                     return Err(Box::new(e));
                 }
             };
 
-            let menu = match MenuBuilder::new(app).item(&open_item).separator().item(&quit_item).build() {
+            let menu = match MenuBuilder::new(app)
+                .item(&open_item)
+                .separator()
+                .item(&quit_item)
+                .build()
+            {
                 Ok(m) => m,
                 Err(e) => {
-                    eprintln!("Failed to build tray menu: {}", e);
+                    config::log_error("tray", &format!("failed to build tray menu: {}", e));
                     return Err(Box::new(e));
                 }
             };
@@ -164,7 +176,7 @@ fn main() {
             {
                 Ok(t) => t,
                 Err(e) => {
-                    eprintln!("Failed to build tray icon: {}", e);
+                    config::log_error("tray", &format!("failed to build tray icon: {}", e));
                     return Err(Box::new(e));
                 }
             };

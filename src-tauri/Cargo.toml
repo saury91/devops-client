@@ -2,12 +2,16 @@
 name = "devops-client"
 version = "0.1.13"
 edition = "2021"
+license = "MIT"
+# 本仓库代码实际用到的最高要求：`std::sync::LazyLock`（1.80）与 `Option::is_none_or`（1.82）。
+# 它是 `clippy::incompatible_msrv` 的输入 —— 写了这一行，CI 就会在有人误用更高版本 API 时
+# 直接报错，而不是等某个用旧工具链的同事在本地撞上。
+rust-version = "1.82"
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-process = "2"
-tauri-plugin-shell = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
@@ -24,9 +28,35 @@ tokio = { version = "1", features = ["full"] }
 rand = "0.8"
 dirs = "5"
 hostname = "0.4"
+# Client TLS certificate: rcgen is used purely as a DER encoder. The signature over the
+# TBS is produced by the OS key store through rcgen's RemoteKeyPair callback, so no
+# private key material is ever created in this process.
+rcgen = "0.13"
+time = "0.3"
+
+# 长期秘密（账号密码、会话 token）存进系统凭据库，见 src/secret.rs。
+#
+# 每个平台单独声明而不是写一条 `cfg(any(...))`：keyring 的后端是 **包级 feature**
+# 而非目标级，把两个后端写进同一条依赖，macOS 上构建也会把 Windows 后端的依赖
+# （windows-sys、byteorder）拉进编译图。分开声明则各平台只编译自己那一份。
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "3", features = ["OSX_10_15"] }
+# Pulled in directly for `errSecItemNotFound`: security-framework's item search reports an empty
+# result set as that error, and the cert code has to tell "nothing installed" apart from a keychain
+# that could not be searched.
+security-framework-sys = "2"
+# `macos-private-api` 让窗口支持透明背景。与上面 [dependencies] 里的 tauri 是同一个包，
+# cargo 会把两处的 feature 取并集（tray-icon + image-png + macos-private-api）。
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Cryptography",
+] }
+keyring = { version = "3", features = ["windows-native"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }

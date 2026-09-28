@@ -83,7 +83,7 @@ pub async fn login_device(
     client_version: &str,
     device_info: &str,
 ) -> Result<LoginResponse, LoginError> {
-    let client = http_client().map_err(|e| LoginError::Network(e))?;
+    let client = http_client().map_err(LoginError::Network)?;
 
     let url = format!("{}/api/auth/login-device", server_url.trim_end_matches('/'));
 
@@ -131,7 +131,10 @@ pub struct UserInfo {
 pub async fn get_user_info(server_url: &str, token: &str) -> Result<UserInfoResponse, String> {
     let client = http_client()?;
 
-    let url = format!("{}/api/auth/get-user-info", server_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/api/auth/get-user-info",
+        server_url.trim_end_matches('/')
+    );
 
     let resp = client
         .get(&url)
@@ -254,10 +257,75 @@ pub async fn auto_login(server_url: &str, fingerprint: &str) -> Result<LoginResp
     Ok(result)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CertLinkResponse {
+    pub code: i32,
+    pub msg: String,
+}
+
+/// Reports the device certificate to the server.
+///
+/// `renew` selects between `bind-cert` and `renew-cert`. Both take the same payload, so they share
+/// one implementation and cannot drift apart. Failures are returned rather than swallowed because
+/// the two callers react differently: a first install must surface in the UI, while a renewal only
+/// needs a log line and a retry on a later cycle.
+///
+/// @param renew `true` for a renewal, `false` for the first registration
+/// @return `Ok(())` on success, otherwise the server message or the transport failure
+pub async fn report_cert(
+    server_url: &str,
+    token: &str,
+    renew: bool,
+    info: &crate::cert::CertInfo,
+) -> Result<(), String> {
+    let client = http_client()?;
+    let (endpoint, name) = if renew {
+        ("renew-cert", "renew_cert")
+    } else {
+        ("bind-cert", "bind_cert")
+    };
+    let url = format!("{}/api/auth/{}", server_url.trim_end_matches('/'), endpoint);
+
+    let body = serde_json::json!({
+        "certFingerprint": info.fingerprint,
+        "certSerial": info.serial,
+        "certNotAfter": info.not_after,
+        "certCapability": info.capability.as_str(),
+    });
+
+    let resp = client
+        .post(&url)
+        .header("X-Session-Id", token)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("{}: connect failed: {}", name, e))?;
+
+    let result: CertLinkResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("{}: parse response failed: {}", name, e))?;
+
+    if result.code != 200 {
+        return Err(result.msg);
+    }
+    Ok(())
+}
+
+/// Heartbeat: asks the server for this device's status.
+///
+/// The body also carries the machine's certificate capability (`full` / `partial` /
+/// `unavailable`), which the server uses to grade enforcement so a machine that cannot hold a
+/// certificate is never locked out. The server skips the write when the value is unchanged, so
+/// repeating it every 30 seconds costs nothing.
+///
+/// @param capability this machine's certificate capability
+/// @return the device status as recorded by the server
 pub async fn check_device_status(
     server_url: &str,
     fingerprint: &str,
     token: &str,
+    capability: &str,
 ) -> Result<DeviceStatus, String> {
     let client = http_client()?;
 
@@ -269,7 +337,10 @@ pub async fn check_device_status(
     let resp = client
         .post(&url)
         .header("X-Session-Id", token)
-        .json(&serde_json::json!({ "fingerprint": fingerprint }))
+        .json(&serde_json::json!({
+            "fingerprint": fingerprint,
+            "certCapability": capability
+        }))
         .send()
         .await
         .map_err(|_| "Failed to connect".to_string())?;
@@ -305,5 +376,267 @@ pub async fn check_device_status(
             _ => Ok(DeviceStatus::Error(format!("Unknown status: {}", s))),
         },
         None => Ok(DeviceStatus::NotFound),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::{HeaderMap, StatusCode, Uri};
+    use axum::{routing::post, Json, Router};
+    use serde_json::{json, Value};
+    use std::sync::{Arc, Mutex};
+
+    /// 桩服务端记录下来的「请求头/路径 → 请求体」。
+    type Seen = Arc<Mutex<Vec<(String, Value)>>>;
+
+    fn recorder() -> Seen {
+        Arc::new(Mutex::new(Vec::new()))
+    }
+
+    fn only_call(seen: &Seen) -> (String, Value) {
+        let calls = seen.lock().expect("recorder lock");
+        assert_eq!(calls.len(), 1, "桩服务端应当恰好被调用一次");
+        calls[0].clone()
+    }
+
+    /// 在随机端口上起桩服务端，返回它的 base URL。
+    ///
+    /// 这里刻意用真实 HTTP，而不是把 reqwest 换成 mock：这些函数真正容易写错的地方是
+    /// URL 拼接（`trim_end_matches('/')`）、请求头名（`X-Session-Id`）和 JSON 字段名
+    /// （`deviceName` 这类 camelCase）。mock 掉客户端恰好会把这三类错误全部掩盖 —— 而
+    /// 它们在真实环境里只表现为一句"登录失败"。
+    async fn spawn_stub(app: Router) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("should bind an ephemeral port");
+        let addr = listener
+            .local_addr()
+            .expect("listener should have an address");
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app.into_make_service()).await;
+        });
+        format!("http://{}", addr)
+    }
+
+    fn cert_info() -> crate::cert::CertInfo {
+        crate::cert::CertInfo {
+            fingerprint: "ab12".to_string(),
+            serial: "0f".to_string(),
+            not_after: "2027-01-01T00:00:00Z".to_string(),
+            capability: crate::cert::CertCapability::Full,
+            store: "test",
+        }
+    }
+
+    #[tokio::test]
+    async fn login_device_trims_trailing_slash_and_sends_camel_case_fields() {
+        let seen = recorder();
+        let sink = seen.clone();
+        let app = Router::new().route(
+            "/api/auth/login-device",
+            post(move |uri: Uri, Json(body): Json<Value>| {
+                let sink = sink.clone();
+                async move {
+                    sink.lock()
+                        .expect("recorder lock")
+                        .push((uri.path().to_string(), body));
+                    Json(json!({
+                        "code": 200,
+                        "msg": "ok",
+                        "data": { "status": "active", "token": "tok-123" }
+                    }))
+                }
+            }),
+        );
+        let base = spawn_stub(app).await;
+
+        // 用户在设置页填成 `https://host/` 是最常见的形式，不能拼出 `//api/auth/login-device`。
+        let resp = login_device(
+            &format!("{}/", base),
+            "alice",
+            "pw",
+            "fp-1",
+            "dev-1",
+            "macos",
+            "14.5",
+            "0.1.13",
+            "{}",
+        )
+        .await
+        .expect("stub answers 200 with a token");
+
+        assert_eq!(resp.code, 200);
+        assert_eq!(resp.data.expect("data").token.as_deref(), Some("tok-123"));
+
+        let (path, body) = only_call(&seen);
+        assert_eq!(path, "/api/auth/login-device");
+        assert_eq!(body["username"], "alice");
+        assert_eq!(body["password"], "pw");
+        assert_eq!(body["fingerprint"], "fp-1");
+        assert_eq!(body["deviceName"], "dev-1");
+        assert_eq!(body["os"], "macos");
+        assert_eq!(body["osVersion"], "14.5");
+        assert_eq!(body["clientVersion"], "0.1.13");
+    }
+
+    #[tokio::test]
+    async fn login_device_reports_unreachable_server_as_network_error() {
+        // 端口 1 上不可能有监听者（绑定它需要 root），连接会被立即拒绝。这比"先 bind 再
+        // drop"拿到的端口更确定 —— 后者有被并行运行的其它测试抢占的可能。
+        let err = login_device(
+            "http://127.0.0.1:1",
+            "alice",
+            "pw",
+            "fp",
+            "dev",
+            "macos",
+            "14",
+            "0.1.13",
+            "{}",
+        )
+        .await
+        .expect_err("connecting to a closed port must fail");
+
+        // 传输层失败必须归到 Network：前端据此显示"连接失败"，而 Server 会显示服务端原话。
+        assert!(matches!(err, LoginError::Network(_)), "got {:?}", err);
+    }
+
+    #[tokio::test]
+    async fn check_device_status_sends_session_header_and_maps_status() {
+        let seen = recorder();
+        let sink = seen.clone();
+        let app = Router::new().route(
+            "/api/auth/device-status",
+            post(move |headers: HeaderMap, Json(body): Json<Value>| {
+                let sink = sink.clone();
+                async move {
+                    let session = headers
+                        .get("X-Session-Id")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or_default()
+                        .to_string();
+                    sink.lock().expect("recorder lock").push((session, body));
+                    Json(json!({ "code": 200, "msg": "ok", "data": { "status": "revoked" } }))
+                }
+            }),
+        );
+        let base = spawn_stub(app).await;
+
+        let status = check_device_status(&base, "fp-1", "sess-9", "full")
+            .await
+            .expect("stub answers 200");
+        assert_eq!(status, DeviceStatus::Revoked);
+
+        let (session, body) = only_call(&seen);
+        // 头部名拼错（比如写成 X-Session-Token）在服务端只表现为"会话无效"，只有这里拦得住。
+        assert_eq!(session, "sess-9");
+        assert_eq!(body["fingerprint"], "fp-1");
+        assert_eq!(body["certCapability"], "full");
+    }
+
+    #[tokio::test]
+    async fn check_device_status_treats_http_401_as_invalid_session() {
+        let app = Router::new().route(
+            "/api/auth/device-status",
+            post(|| async { (StatusCode::UNAUTHORIZED, "") }),
+        );
+        let base = spawn_stub(app).await;
+
+        let status = check_device_status(&base, "fp", "t", "full")
+            .await
+            .expect("401 is a mapped result, not a transport failure");
+        // 心跳线程靠这个哨兵值触发被动登出，不能退化成通用的 Error("Failed to parse ...")。
+        assert_eq!(status, DeviceStatus::Error("SESSION_INVALID".to_string()));
+    }
+
+    #[tokio::test]
+    async fn change_password_surfaces_server_message_on_failure() {
+        let app = Router::new().route(
+            "/api/auth/change-password",
+            post(|| async { Json(json!({ "code": 400, "msg": "weak password" })) }),
+        );
+        let base = spawn_stub(app).await;
+
+        let err = change_password(&base, "t", "old", "new")
+            .await
+            .expect_err("code != 200 must be an error");
+        // 直接把服务端原话透给用户，而不是包成"操作失败"。
+        assert_eq!(err, "weak password");
+    }
+
+    #[tokio::test]
+    async fn change_password_succeeds_on_code_200() {
+        let app = Router::new().route(
+            "/api/auth/change-password",
+            post(|| async { Json(json!({ "code": 200, "msg": "ok" })) }),
+        );
+        let base = spawn_stub(app).await;
+
+        change_password(&base, "t", "old", "new")
+            .await
+            .expect("code 200 must be Ok");
+    }
+
+    #[tokio::test]
+    async fn create_exchange_token_rejects_ok_response_without_token() {
+        let app = Router::new().route(
+            "/api/auth/create-exchange-token",
+            post(|| async { Json(json!({ "code": 200, "msg": "ok", "data": {} })) }),
+        );
+        let base = spawn_stub(app).await;
+
+        // 交换 token 缺失时必须报错：返回空串会让"打开工作台"带着空凭据发出去，
+        // 用户看到的是工作台登录页，而不是清楚的一句失败原因。
+        let err = create_exchange_token(&base, "t")
+            .await
+            .expect_err("missing token must be an error");
+        assert_eq!(err, "exchange token is empty");
+    }
+
+    #[tokio::test]
+    async fn report_cert_selects_endpoint_and_sends_camel_case_cert_fields() {
+        let seen = recorder();
+        let sink = seen.clone();
+        let app = Router::new().route(
+            "/api/auth/bind-cert",
+            post(move |uri: Uri, Json(body): Json<Value>| {
+                let sink = sink.clone();
+                async move {
+                    sink.lock()
+                        .expect("recorder lock")
+                        .push((uri.path().to_string(), body));
+                    Json(json!({ "code": 200, "msg": "ok" }))
+                }
+            }),
+        );
+        let base = spawn_stub(app).await;
+
+        // `renew = false` 必须打到 bind-cert。选错端点会让首装证书被当成续期处理，
+        // 服务端不会记录"这台设备已绑定"。
+        report_cert(&base, "sess-1", false, &cert_info())
+            .await
+            .expect("stub answers 200");
+
+        let (path, body) = only_call(&seen);
+        assert_eq!(path, "/api/auth/bind-cert");
+        assert_eq!(body["certFingerprint"], "ab12");
+        assert_eq!(body["certSerial"], "0f");
+        assert_eq!(body["certNotAfter"], "2027-01-01T00:00:00Z");
+        assert_eq!(body["certCapability"], "full");
+    }
+
+    #[tokio::test]
+    async fn report_cert_surfaces_server_rejection() {
+        let app = Router::new().route(
+            "/api/auth/renew-cert",
+            post(|| async { Json(json!({ "code": 409, "msg": "cert already bound" })) }),
+        );
+        let base = spawn_stub(app).await;
+
+        let err = report_cert(&base, "sess-1", true, &cert_info())
+            .await
+            .expect_err("code != 200 must be an error");
+        assert_eq!(err, "cert already bound");
     }
 }

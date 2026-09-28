@@ -14,8 +14,8 @@
     <div class="terminal-shell">
       <div class="term-titlebar" data-tauri-drag-region>
         <div class="win-actions">
-          <button class="tb-btn tb-close btn-hide" title="Hide">×</button>
-          <button class="tb-btn tb-min btn-minimize" title="Minimize">−</button>
+          <button class="tb-btn tb-close btn-hide" title="Hide" data-i18n-title="window.hide">×</button>
+          <button class="tb-btn tb-min btn-minimize" title="Minimize" data-i18n-title="window.minimize">−</button>
         </div>
         <span class="term-title">auto_terminal.exe</span>
         <div class="term-spacer"></div>
@@ -49,8 +49,8 @@
       <!-- Window controls + title (macOS order: close, minimize) -->
       <div class="term-titlebar" data-tauri-drag-region>
         <div class="win-actions">
-          <button class="tb-btn tb-close btn-hide" title="Hide">×</button>
-          <button class="tb-btn tb-min btn-minimize" title="Minimize">−</button>
+          <button class="tb-btn tb-close btn-hide" title="Hide" data-i18n-title="window.hide">×</button>
+          <button class="tb-btn tb-min btn-minimize" title="Minimize" data-i18n-title="window.minimize">−</button>
         </div>
         <span class="term-title">auth_terminal.exe</span>
         <div class="term-spacer"></div>
@@ -107,8 +107,8 @@
       <!-- Window controls + title (macOS order: close, minimize) -->
       <div class="term-titlebar panel-titlebar" data-tauri-drag-region>
         <div class="win-actions">
-          <button class="tb-btn tb-close btn-close" title="Close">×</button>
-          <button class="tb-btn tb-min btn-minimize" title="Minimize">−</button>
+          <button class="tb-btn tb-close btn-close" title="Close" data-i18n-title="window.close">×</button>
+          <button class="tb-btn tb-min btn-minimize" title="Minimize" data-i18n-title="window.minimize">−</button>
         </div>
         <span class="term-title">agent_terminal.exe</span>
         <div class="term-spacer"></div>
@@ -160,7 +160,7 @@
         <div id="tab-wave" class="panel-tab-content active">
           <div class="wave-wrap">
             <canvas id="wave-canvas"></canvas>
-            <div class="monitor-ball" id="monitor-ball" title="单击打开工作台 · 长按复制链接">
+            <div class="monitor-ball" id="monitor-ball" title="单击打开工作台 · 长按复制链接" data-i18n-title="panel.ballHint">
               <div class="ball-liquid">
                 <div class="ball-foam">
                   <span></span><span></span><span></span><span></span><span></span>
@@ -211,6 +211,17 @@
           <option value="zh" data-i18n="settings.langZh">中文</option>
           <option value="en" data-i18n="settings.langEn">English</option>
         </select>
+      </div>
+      <div class="form-group">
+        <label data-i18n="settings.update">App Update</label>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+          <button id="settings-check-update" class="btn-sm" style="font-size:11px;padding:4px 10px;background:rgba(0,229,255,0.08);border:1px solid rgba(0,229,255,0.25);color:var(--accent);border-radius:4px;cursor:pointer" data-i18n="settings.checkUpdate">CHECK</button>
+          <button id="settings-install-update" class="btn-sm" style="display:none;font-size:11px;padding:4px 10px;background:rgba(0,229,255,0.08);border:1px solid rgba(0,229,255,0.25);color:var(--accent);border-radius:4px;cursor:pointer" data-i18n="settings.installUpdate">INSTALL</button>
+          <span id="settings-update-status" class="conn-status"></span>
+        </div>
+        <div class="info-line info-sub" style="margin-top:6px;">
+          <span data-i18n="settings.currentVersion">Current Version</span>: <span id="settings-version">-</span>
+        </div>
       </div>
       <button id="settings-save" class="btn-scan"><span class="btn-text" data-i18n="settings.save">SAVE</span></button>
     </div>

@@ -24,28 +24,118 @@ var App = (function () {
     }, 3500);
   }
 
-  async function checkForUpdate() {
+  // ---- 更新检查 / 安装 ----
+  //
+  // 三条约束：
+  //  1) 启动时的自动检查只提示、不下载。静默替换二进制并重启会打断正在进行的工作 ——
+  //     旧实现是在用户毫不知情的情况下就跑完了 download_and_install。
+  //  2) 下载必须有可见进度。安装包以十兆计，没有反馈的等待会被当成卡死。
+  //  3) 失败不能只写 console。这个应用没有打包器，终端用户打不开开发者工具，
+  //     console.error 那句只有我们自己看得到。
+  var _update = { checking: false, installing: false, rid: null, version: '', downloaded: 0 };
+
+  function updateStatus(text, kind) {
+    var el = document.getElementById('settings-update-status');
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = 'conn-status' + (kind ? ' ' + kind : '');
+  }
+
+  function updateInstallVisible(visible) {
+    var btn = document.getElementById('settings-install-update');
+    if (btn) btn.style.display = visible ? 'inline-block' : 'none';
+  }
+
+  function humanSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  // manual = 用户在设置页主动点了「检查更新」。主动时必须明确回答「已是最新」或
+  // 「检查失败」；自动检查则只在真能装到东西时才打扰用户。
+  async function checkUpdate(manual) {
+    var T = window.__TAURI__;
+    if (!T || !T.core || !T.core.invoke) {
+      // 直接用浏览器打开 index.html 调试时会走到这里。
+      if (manual) updateStatus(I18n.t('update.unsupported'), 'error');
+      return null;
+    }
+    if (_update.checking || _update.installing) return null;
+
+    _update.checking = true;
+    if (manual) updateStatus(I18n.t('update.checking'), 'testing');
+
     try {
-      // 直接调用 updater/process 插件的 IPC（无打包器环境下动态 import 不可用）
-      var T = window.__TAURI__;
-      if (!T || !T.core || !T.core.invoke) return;
       var metadata = await T.core.invoke('plugin:updater|check');
-      if (!metadata || !metadata.rid) return; // 无可用更新
-      showToast(I18n.t('update.found') + ' ' + (metadata.version || ''), 'info');
+      // 没有可用更新时插件返回 null；rid 是后续下载要用的资源句柄。
+      if (!metadata || !metadata.rid) {
+        _update.rid = null;
+        updateInstallVisible(false);
+        if (manual) updateStatus(I18n.t('update.upToDate'), 'success');
+        return null;
+      }
+
+      _update.rid = metadata.rid;
+      _update.version = metadata.version || '';
+      var label = I18n.t('update.found', { version: _update.version });
+      updateInstallVisible(true);
+      updateStatus(label, 'success');
+      if (!manual) showToast(label, 'info');
+      return metadata;
+    } catch (e) {
+      console.error('checkUpdate failed:', e);
+      // 更新服务不可达（离线、内网、尚未发布）不是需要报警的状态，自动检查时保持安静；
+      // 但用户主动点了，就必须给答复。
+      if (manual) updateStatus(I18n.t('update.checkFailed') + ': ' + String(e), 'error');
+      return null;
+    } finally {
+      _update.checking = false;
+    }
+  }
+
+  async function installUpdate() {
+    var T = window.__TAURI__;
+    if (!T || !T.core || !T.core.invoke || _update.installing) return;
+    // 启动时的检查可能还没跑完、或当时正好离线，这里补一次检查再决定能否继续。
+    if (!_update.rid && !(await checkUpdate(true))) return;
+
+    _update.installing = true;
+    _update.downloaded = 0;
+    updateInstallVisible(false);
+    updateStatus(I18n.t('update.downloading'), 'testing');
+
+    try {
       var channel = new T.core.Channel();
       channel.onmessage = function (event) {
-        switch (event && event.event) {
-          case 'Started':
-          case 'Progress':
-          case 'Finished':
-            break;
+        if (!event) return;
+        if (event.event === 'Started') {
+          var total = (event.data && event.data.contentLength) || 0;
+          updateStatus(
+            total ? I18n.t('update.downloadingOf', { size: humanSize(total) }) : I18n.t('update.downloading'),
+            'testing'
+          );
+        } else if (event.event === 'Progress') {
+          _update.downloaded += (event.data && event.data.chunkLength) || 0;
+          updateStatus(I18n.t('update.downloaded', { size: humanSize(_update.downloaded) }), 'testing');
+        } else if (event.event === 'Finished') {
+          // 下载结束后还有校验与替换安装包两步，它们没有进度回调，给一句明确的等待提示。
+          updateStatus(I18n.t('update.installing'), 'testing');
         }
       };
-      await T.core.invoke('plugin:updater|download_and_install', { onEvent: channel, rid: metadata.rid });
-      showToast(I18n.t('update.installing'), 'info');
+
+      await T.core.invoke('plugin:updater|download_and_install', { onEvent: channel, rid: _update.rid });
+
+      // 重启才会真正切到新版本。这里不弹 toast：重启会让窗口立即消失，吐司来不及被看见，
+      // 而设置页上的状态文字用户已经看到了。
+      updateStatus(I18n.t('update.restarting'), 'testing');
       await T.core.invoke('plugin:process|restart');
     } catch (e) {
-      console.error('checkForUpdate failed:', e);
+      console.error('installUpdate failed:', e);
+      _update.installing = false;
+      updateInstallVisible(true);
+      updateStatus(I18n.t('update.installFailed') + ': ' + String(e), 'error');
+      showToast(I18n.t('update.installFailed'), 'error');
     }
   }
 
@@ -73,8 +163,8 @@ var App = (function () {
 
     applyTranslations();
 
-    // Check for app updates in the background (best-effort)
-    checkForUpdate();
+    // 后台检查更新（best-effort）。只提示，不下载 —— 安装由用户在设置页确认。
+    checkUpdate(false);
 
     // Window control buttons
     document.querySelectorAll('.btn-minimize').forEach(function (btn) {
@@ -137,6 +227,15 @@ var App = (function () {
       var hasPreviousLogin = cfg && cfg.server_url && cfg.token;
 
       if (hasPreviousLogin) {
+        // 旧版本客户端的登录不登记设备证书，升级上来的配置里没有 cert_registered 标记。
+        // 这种安装不能静默续登：否则设备会长期停在「已登录、服务端却没有它的证书」的状态，
+        // 所以清掉会话回到登录页（账号密码沿用已保存值，用户只需再点一次登录），
+        // 由交互式登录路径补做证书登记。
+        if (!cfg.cert_registered) {
+          await _doLogout(false, I18n.t('login.certReloginRequired'));
+          return;
+        }
+
         // Show the dedicated auto-login page directly
         renderAutoLoginUser(cfg.nickname || cfg.username || '-');
         switchView('auto-login');
@@ -181,17 +280,11 @@ var App = (function () {
         await sleep(remaining);
 
         if (autoError) {
-          // Clear the stale token so next startup goes straight to login
-          try {
-            cfg.token = '';
-            await API.saveConfig(cfg);
-          } catch (_) {}
-
-          switchView('login', {
-            username: cfg.username || '',
-            password: cfg.password || '',
-            error: I18n.t('login.autoLoginFailed') + ': ' + autoError
-          });
+          // 走和被动退出同一条清理路径：失败点可能出现在后半程（startHeartbeat 或 saveConfig
+          // 抛错），此时本地代理已经起来了；只清 token 会把代理和心跳线程留在后台占着端口，
+          // 而界面已经回到登录页，用户再登录一次就会起第二个。
+          // _doLogout 会停服务、清 token、回填账号密码并带着提示回到登录页。
+          await _doLogout(false, I18n.t('login.autoLoginFailed') + ': ' + autoError);
           return;
         }
 
@@ -212,8 +305,9 @@ var App = (function () {
       // Fall through to login form
     }
 
-    // No previous login / error: show the normal login form directly
-    switchView('login');
+    // No previous login / error: show the normal login form directly.
+    // 已保存的账号密码默认回填，用户不必重新输入（主动退出时会清掉保存的密码）。
+    switchView('login', cfg ? { username: cfg.username || '', password: cfg.password || '' } : undefined);
   }
 
   function sleep(ms) {
@@ -312,8 +406,23 @@ var App = (function () {
     }
   }
 
+  // 登出会停代理与心跳、写 config、切视图。这些调用可能并发到来（设备被撤销、连接丢失、
+  // 用户手动退出、自动登录失败），并行执行时两条流程会交叉写配置、切换视图，用户最终停在哪一页
+  // 取决于谁后跑完。这里把每次调用排队串行执行 —— 不合并，因为两者语义不同：
+  // 手动退出要清掉保存的密码，被动退出要回填账号密码。
+  var _logoutQueue = Promise.resolve();
+
+  function _doLogout(clearForm, notice) {
+    var run = function () { return doLogout(clearForm, notice); };
+    // 无论前一次成功还是失败都继续排队，一次登出失败不该让后续登出永远排不上。
+    var queued = _logoutQueue.then(run, run);
+    _logoutQueue = queued.then(function () {}, function () {});
+    return queued;
+  }
+
   // Cleanup: stop proxy + heartbeat, clear config, reset form fields (optional)
-  async function _doLogout(clearForm) {
+  // `notice` 显示在登录页上，用于说明这次为什么被退回登录（如升级后需要重新登录一次）。
+  async function doLogout(clearForm, notice) {
     try { await API.stopProxy(); } catch (e) { console.error('stopProxy failed:', e); }
     try { await API.stopHeartbeat(); } catch (e) { console.error('stopHeartbeat failed:', e); }
     Panel.cleanup();
@@ -348,8 +457,11 @@ var App = (function () {
       var passInput = document.getElementById('pass-input');
       if (userInput) userInput.value = '';
       if (passInput) passInput.value = '';
+      switchView('login', notice ? { error: notice } : undefined);
+    } else {
+      // 被动退出、被要求重新登录：回显已保存的账号与密码
+      switchView('login', { username: savedUsername, password: savedPassword, error: notice });
     }
-    switchView('login', clearForm ? undefined : { username: savedUsername, password: savedPassword });
   }
 
   async function logout() {
@@ -363,12 +475,21 @@ var App = (function () {
     API.quit();
   }
 
+  // 会话已失效但用户没主动退出时使用（如设置页改了服务器地址）：停服务、清 token、
+  // 回登录页并回显账号密码，与"被动退出"同一条路径。
+  function invalidateSession(notice) {
+    return _doLogout(false, notice);
+  }
+
   return {
     init: init,
     switchView: switchView,
     applyTranslations: applyTranslations,
     logout: logout,
-    quitApp: quitApp
+    quitApp: quitApp,
+    invalidateSession: invalidateSession,
+    checkUpdate: checkUpdate,
+    installUpdate: installUpdate
   };
 })();
 

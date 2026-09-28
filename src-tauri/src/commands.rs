@@ -6,6 +6,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use url::Url;
 
 use crate::auth;
+use crate::cert;
 use crate::config::{load_config, save_config, Config};
 use crate::fingerprint;
 use crate::i18n::{self, Lang};
@@ -220,8 +221,7 @@ fn collect_windows_info(info: &mut serde_json::Map<String, serde_json::Value>) {
         if let Some(line) = s.lines().nth(1) {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 2 {
-                if let (Ok(free), Ok(total)) = (parts[0].parse::<u64>(), parts[1].parse::<u64>())
-                {
+                if let (Ok(free), Ok(total)) = (parts[0].parse::<u64>(), parts[1].parse::<u64>()) {
                     info.insert(
                         "disk".into(),
                         serde_json::Value::String(format!(
@@ -297,7 +297,10 @@ fn collect_linux_info(info: &mut serde_json::Map<String, serde_json::Value>) {
         );
     }
     if let Ok(out) = std::process::Command::new("sh")
-        .args(["-c", "df -h / | tail -1 | awk '{print $2\", \"$4\" free\"}'"])
+        .args([
+            "-c",
+            "df -h / | tail -1 | awk '{print $2\", \"$4\" free\"}'",
+        ])
         .output()
     {
         info.insert(
@@ -356,7 +359,12 @@ fn get_hardware_info() -> String {
 fn classify_auth_error(lang: Lang, result: &auth::LoginResponse) -> String {
     let code = result.code;
     let msg = &result.msg;
-    if code == 401 || msg.contains("password") || msg.contains("credential") || msg.contains("密码") || msg.contains("用户名") {
+    if code == 401
+        || msg.contains("password")
+        || msg.contains("credential")
+        || msg.contains("密码")
+        || msg.contains("用户名")
+    {
         return i18n::t(lang, "error.badCredentials").to_string();
     }
     if code == 423 || msg.contains("locked") || msg.contains("锁定") {
@@ -367,6 +375,129 @@ fn classify_auth_error(lang: Lang, result: &auth::LoginResponse) -> String {
         return msg.clone();
     }
     i18n::t(lang, "login.failed").to_string()
+}
+
+// --- Device certificate helpers ---
+
+/// Builds the identity written into the certificate `OU` field.
+///
+/// User plus host, because neither half alone is enough when an operator inspects the OS key store
+/// by hand: a host name cannot tell two accounts on one machine apart, and a user name cannot tell
+/// one account's several machines apart.
+fn cert_owner(username: &str) -> String {
+    let host = platform::hostname();
+    if username.is_empty() {
+        host
+    } else {
+        format!("{}@{}", username, host)
+    }
+}
+
+/// Points Firefox at the key store on the two platforms where it cannot find it by itself.
+///
+/// Chrome and Safari read the platform key store unprompted, so Firefox is the only browser that
+/// needs help: its certificate lives in `CurrentUser\My` on Windows and in the login keychain on
+/// macOS, and Firefox presents it once `security.osclientcerts.autoload` is set. Both platforms ship
+/// a native `osclientcerts` backend, so this preference is the whole difference between `full` and
+/// `partial` there.
+///
+/// macOS was verified rather than assumed: Firefox 155 presents the login keychain identity at the
+/// handshake once the preference is set, and a server demanding a client certificate accepts it.
+/// That also means the certificate can stay non-exportable — importing it into a profile's NSS
+/// database would require an exportable private key, which would defeat device binding.
+///
+/// Linux is deliberately excluded: it has no platform key store for Firefox to read, so the
+/// preference would be a no-op there and the certificate has to go into each profile's own NSS
+/// database instead. That belongs to Linux's own work item; see `cert::linux`.
+///
+/// Failures are logged instead of returned: the certificate itself is installed and every other
+/// browser can use it, so a profile this client cannot write — a snap-confined directory, a locked
+/// profile — must not turn a successful install into a failed one.
+fn reconcile_browsers() {
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    {
+        let update = cert::firefox::enable_os_client_certs();
+        if update.failed > 0 {
+            crate::config::log_error(
+                "reconcile_browsers",
+                &format!(
+                    "firefox profiles: {}/{} updated, {} unreadable",
+                    update.updated, update.profiles, update.failed
+                ),
+            );
+        }
+    }
+}
+
+/// Installs the certificate into the OS key store and registers it with the server.
+///
+/// The two halves must happen together: installing without registering leaves the device holding a
+/// certificate the server still believes it does not have, and registering without installing
+/// leaves the browser with nothing to present at the handshake. Either half alone makes "bound" a
+/// lie, so they live in one function.
+async fn ensure_cert_bound(
+    server_url: &str,
+    token: &str,
+    username: &str,
+) -> Result<cert::CertInfo, String> {
+    let status = cert::ensure(&cert_owner(username)).map_err(|e| e.to_string())?;
+    let info = status
+        .installed
+        .ok_or_else(|| "certificate store returned no certificate".to_string())?;
+    reconcile_browsers();
+    auth::report_cert(server_url, token, false, &info).await?;
+    Ok(info)
+}
+
+/// Re-issues the certificate inside the renewal window and registers the new fingerprint.
+///
+/// 顺序是这里唯一重要的事：装新证书（旧的不动）→ 登记到服务端 → 登记成功后才删掉被取代的旧证书。
+/// 每一步失败都让设备停在"钥匙串与服务端记录一致"的状态上：
+/// - 装不上：旧证书原样可用，什么都没变；
+/// - 登记不上：删掉服务端还不知道的新证书（回滚），浏览器出示的仍是服务端记录过的那张；
+/// - 删不掉：只多留一张旧证书，而 `status` 取最新 —— 正是刚登记成功的那张。
+///
+/// @param previous 调用方刚查到的、在服务端记录里的那张证书的指纹
+async fn renew_device_cert(
+    server_url: &str,
+    token: &str,
+    owner: &str,
+    previous: &str,
+) -> Result<(), String> {
+    let fresh = cert::install_replacement(owner).map_err(|e| e.to_string())?;
+
+    if let Err(e) = auth::report_cert(server_url, token, true, &fresh).await {
+        // 回滚：删掉服务端拒绝登记的新证书，保留仍在服务端记录里的旧证书。少了这一步，
+        // 浏览器会出示一张服务端不认识的证书，用户在当前这轮会话里就打不开页面了。
+        if let Err(rollback) = cert::keep_only(previous) {
+            crate::config::log_error("cert", &format!("renew rollback failed: {}", rollback));
+        }
+        return Err(e);
+    }
+
+    if let Err(e) = cert::keep_only(&fresh.fingerprint) {
+        // 新证书已经装好并登记成功；残留的旧证书只是多出一个可选身份，不该让整次续期算失败。
+        crate::config::log_error(
+            "cert",
+            &format!("superseded certificate not removed: {}", e),
+        );
+    }
+    Ok(())
+}
+
+/// Re-issues and re-registers the certificate only once it is inside the renewal window.
+///
+/// @return `Ok(true)` when a renewal actually happened, `Ok(false)` when the certificate is still
+///         comfortably valid
+async fn renew_if_due(server_url: &str, token: &str, owner: &str) -> Result<bool, String> {
+    let Some(info) = cert::status().installed else {
+        return Ok(false);
+    };
+    if !cert::needs_renewal(&info) {
+        return Ok(false);
+    }
+    renew_device_cert(server_url, token, owner, &info.fingerprint).await?;
+    Ok(true)
 }
 
 // --- Tauri commands ---
@@ -444,12 +575,12 @@ pub async fn do_login(
         Err(auth::LoginError::Network(detail)) => {
             Err(format!("{}: {}", i18n::t(lang, "login.connFailed"), detail))
         }
-        Err(auth::LoginError::Server(_code, msg)) => {
-            Err(if !msg.is_empty() { msg } else { i18n::t(lang, "login.failed").to_string() })
-        }
-        Ok(resp) if resp.code != 200 => {
-            Err(classify_auth_error(lang, &resp))
-        }
+        Err(auth::LoginError::Server(_code, msg)) => Err(if !msg.is_empty() {
+            msg
+        } else {
+            i18n::t(lang, "login.failed").to_string()
+        }),
+        Ok(resp) if resp.code != 200 => Err(classify_auth_error(lang, &resp)),
         Ok(resp) => {
             let data = resp
                 .data
@@ -457,11 +588,54 @@ pub async fn do_login(
             let status = data.status.unwrap_or_else(|| "error".to_string());
             let token = data.token.unwrap_or_default();
 
+            // `login-device` answers `ok` for a device that is approved and holds a session, and
+            // `pending` — with no token — while it waits for approval. That is a different
+            // vocabulary from `device-status`, which speaks `active` / `pending` / `revoked`:
+            // testing for `active` here never matched, so the certificate was silently never
+            // registered. Binding stays gated on the token because the server refuses `bind-cert`
+            // for a device that is not approved yet, and an early attempt would surface as a
+            // spurious "waiting for approval" error.
+            let (cert_fingerprint, cert_warning) = if status == "ok" && !token.is_empty() {
+                match ensure_cert_bound(&server_url, &token, &username).await {
+                    Ok(info) => (Some(info.fingerprint), None),
+                    // A certificate failure must not block the sign-in: the whole point of grading
+                    // device capability is that a machine which cannot hold a certificate still
+                    // gets in. The reason goes back to the UI instead.
+                    Err(e) => {
+                        crate::config::log_error(
+                            "do_login",
+                            &format!("install cert failed: {}", e),
+                        );
+                        (None, Some(e))
+                    }
+                }
+            } else {
+                (None, None)
+            };
+
+            let cert_capability = cert::reported_capability();
+            // A machine that cannot host a certificate at all (`unavailable`) counts as settled
+            // even with nothing registered: another sign-in cannot give it one, so leaving it
+            // unsettled would make it demand a login on every start. Everywhere else an
+            // unregistered certificate stays unsettled on purpose — the UI answers that with one
+            // more sign-in, which is where registration happens, and the flag is also what tells
+            // an upgraded install (whose sign-ins never registered anything) from a settled one.
+            let cert_registered =
+                cert_fingerprint.is_some() || cert_capability == cert::CertCapability::Unavailable;
+
             Ok(serde_json::json!({
                 "status": status,
                 "token": token,
                 "message": data.message.unwrap_or_default(),
-                "fingerprint": fp.value
+                "fingerprint": fp.value,
+                "certFingerprint": cert_fingerprint,
+                // What the certificate can actually do, not the platform ceiling: a machine whose
+                // certificate ended up untrusted — a refused grant, a key store that rejected the
+                // write — must reach the UI as `partial` so it can be reported, instead of looking
+                // like every working machine.
+                "certCapability": cert_capability.as_str(),
+                "certRegistered": cert_registered,
+                "certWarning": cert_warning
             }))
         }
     }
@@ -475,7 +649,9 @@ pub async fn get_user_info(server_url: String, token: String) -> Result<serde_js
     if resp.code != 200 {
         return Err(resp.msg);
     }
-    let info = resp.data.ok_or_else(|| i18n::t(lang, "error.serverError").to_string())?;
+    let info = resp
+        .data
+        .ok_or_else(|| i18n::t(lang, "error.serverError").to_string())?;
     Ok(serde_json::json!({
         "id": info.id,
         "username": info.username.unwrap_or_default(),
@@ -506,7 +682,9 @@ pub async fn auto_login(
     if resp.code != 200 {
         return Err(resp.msg);
     }
-    let data = resp.data.ok_or_else(|| i18n::t(lang, "error.serverError").to_string())?;
+    let data = resp
+        .data
+        .ok_or_else(|| i18n::t(lang, "error.serverError").to_string())?;
     let token = data.token.unwrap_or_default();
     Ok(serde_json::json!({ "token": token }))
 }
@@ -525,13 +703,61 @@ pub async fn server_logout(server_url: String, token: String) -> Result<(), Stri
     let base = server_url.trim_end_matches('/');
     // Only call device-offline — /logout is a browser-side convenience path
     let url = format!("{}/api/auth/device-offline", base);
-    let _ = client
+    // 只记日志，不往上返回错误：本地登出已经完成（token 会被清掉），这一步只是尽量让服务端
+    // 早点把这台设备标记为离线，服务端不可达不该让用户卡在登出流程里。原先是 `let _ =`，
+    // 请求失败连一行记录都没有。
+    if let Err(e) = client
         .post(&url)
         .header("X-Session-Id", &token)
         .send()
-        .await;
+        .await
+    {
+        crate::config::log_error("logout", &format!("device-offline request failed: {}", e));
+    }
 
     Ok(())
+}
+
+/// Reports what this machine can do and whether a certificate is installed, without installing one.
+#[tauri::command]
+pub fn get_cert_status() -> cert::CertStatus {
+    cert::status()
+}
+
+/// Installs the device certificate and, when a session is available, registers it with the server.
+///
+/// An empty `server_url` or `token` installs into the key store only, which is what the UI's
+/// "retry install" button needs before a session exists. When both are present the fingerprint is
+/// reported right away, so the intermediate state of "installed locally, unknown to the server"
+/// never outlives this call.
+///
+/// @param server_url server address, may be empty
+/// @param token      session id, may be empty
+/// @param username   signed-in user, written into the `OU` field
+/// @return the resulting status, or a description when the key store refused
+#[tauri::command]
+pub async fn install_device_cert(
+    server_url: String,
+    token: String,
+    username: String,
+) -> Result<cert::CertStatus, String> {
+    if !server_url.is_empty() {
+        validate_server_url(&server_url)?;
+    }
+
+    let status = cert::ensure(&cert_owner(&username)).map_err(|e| e.to_string())?;
+
+    // Retrying an install is the one path that can repair a profile Firefox could not read earlier,
+    // so browser reconciliation happens here too and not only during sign-in.
+    reconcile_browsers();
+
+    if !server_url.is_empty() && !token.is_empty() {
+        if let Some(info) = status.installed.as_ref() {
+            auth::report_cert(&server_url, &token, false, info).await?;
+        }
+    }
+
+    Ok(status)
 }
 
 #[tauri::command]
@@ -552,7 +778,6 @@ pub fn start_proxy(
     let (port, shutdown_tx) = proxy::start_proxy(fingerprint.clone(), app_handle)?;
     proxy_state.running.store(true, Ordering::SeqCst);
     *proxy_state.port.lock().unwrap() = Some(port);
-    *proxy_state.fingerprint.lock().unwrap() = fingerprint;
     *proxy_state.shutdown_tx.lock().unwrap() = Some(shutdown_tx);
     Ok(port)
 }
@@ -627,6 +852,20 @@ async fn build_dashboard_url(server_url: &str, token: &str, port: u16) -> Result
         return Ok(server_url.trim_end_matches('/').to_string());
     }
 
+    // The browser session this URL opens is about to be authenticated with the certificate, so
+    // settle its trust first: a terminal upgraded from a build that never granted trust holds one
+    // no browser will present, and finding that out at the handshake costs the user a session that
+    // simply fails. This never installs, so it cannot invent an identity the server has not seen,
+    // and a failure is logged rather than returned — the certificate is one of several checks the
+    // server applies, and losing the URL over it would be worse than opening a session that may
+    // fall back.
+    if let Err(e) = cert::repair_installed() {
+        crate::config::log_error(
+            "open_dashboard",
+            &format!("cert trust repair failed: {}", e),
+        );
+    }
+
     let exchange_token = auth::create_exchange_token(server_url, token).await?;
     let base = server_url.trim_end_matches('/');
     let mut url = Url::parse(base).map_err(|e| e.to_string())?;
@@ -641,6 +880,26 @@ async fn build_dashboard_url(server_url: &str, token: &str, port: u16) -> Result
 
 /// 心跳间隔：调大可降低服务端压力（客户端越多越需要），但设备撤销/会话失效检测会变慢
 const HEARTBEAT_INTERVAL_SECS: u64 = 30;
+
+/// 无论心跳线程怎么退出（正常结束、break、panic 展开），都把共享标志复位。
+///
+/// 没有它的话，循环里任何一次 panic 都会带着 `running = true` 解栈：此后每次 `start_heartbeat`
+/// 都在这个标志上提前返回，心跳在本进程剩余生命周期里再也不会恢复 —— 用户看到的是一个"已登录、
+/// 但服务端再也收不到状态"的客户端，只能重启应用。
+struct HeartbeatReset {
+    state: Arc<HeartbeatState>,
+}
+
+impl Drop for HeartbeatReset {
+    fn drop(&mut self) {
+        self.state.running.store(false, Ordering::SeqCst);
+        // `lock()` 报 Err 只在持锁线程 panic 过时才出现，而这条路径本身常常就在 panic 展开中：
+        // 再 panic 一次会变成 abort，所以中毒的锁按"已清空"处理，不 unwrap。
+        if let Ok(mut cancel) = self.state.cancel.lock() {
+            *cancel = None;
+        }
+    }
+}
 
 #[tauri::command]
 pub fn start_heartbeat(
@@ -665,10 +924,25 @@ pub fn start_heartbeat(
     let heartbeat_state = heartbeat_state.inner().clone();
 
     std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().unwrap();
+        // 放在线程最外层：创建运行时的失败、循环里的 panic 都经由它的 Drop 复位标志。
+        let _reset = HeartbeatReset {
+            state: heartbeat_state.clone(),
+        };
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            // 拿不到运行时就连循环都进不去，直接退出让标志复位，下次 start_heartbeat 可以重试。
+            Err(e) => {
+                crate::config::log_error("heartbeat", &format!("runtime init failed: {}", e));
+                return;
+            }
+        };
         rt.block_on(async move {
             let mut failures: u32 = 0;
             let mut last_failure_time: Option<std::time::Instant> = None;
+            // Renewal is measured in days, so there is no reason to probe the key store on every
+            // heartbeat cycle; this counter limits the check to roughly once per ten minutes.
+            let mut cycle: u64 = 0;
+            let mut renew_retry_after: Option<std::time::Instant> = None;
             loop {
                 if !cancel.load(Ordering::SeqCst) {
                     break;
@@ -679,13 +953,56 @@ pub fn start_heartbeat(
                 }
 
                 // Re-read token each cycle so session renewals are picked up
-                let token = load_config().map(|c| c.token).unwrap_or_default();
+                let config = load_config();
+                let token = config.as_ref().map(|c| c.token.clone()).unwrap_or_default();
                 if token.is_empty() {
                     let _ = app_handle.emit("connection-lost", ());
                     break;
                 }
+                let owner = cert_owner(
+                    config
+                        .as_ref()
+                        .map(|c| c.username.as_str())
+                        .unwrap_or_default(),
+                );
 
-                match auth::check_device_status(&server_url, &fingerprint, &token).await {
+                cycle = cycle.wrapping_add(1);
+
+                // Roughly every ten minutes: settle the trust of the certificate already installed.
+                // Placed before the capability below so a repair is reported in this same cycle
+                // rather than the next, and deliberately not conditional on the status the request
+                // below returns — an unusable certificate is a local fault, and the server is the
+                // party that has to hear about it.
+                //
+                // The machine this exists for was registered by a build that never granted trust,
+                // and neither a silent sign-in nor this loop passes through `ensure`: without this
+                // it would stay broken for as long as it keeps its session and never types a
+                // password again, while every browser session it opened was rejected.
+                if cycle % 20 == 1 {
+                    if let Err(e) = cert::repair_installed() {
+                        crate::config::log_error(
+                            "heartbeat",
+                            &format!("cert trust repair failed: {}", e),
+                        );
+                    }
+                }
+
+                // Report what this machine can actually do, not its platform ceiling. The value is
+                // stored against the device, and a certificate no browser will present must not be
+                // reported as `full` — the value a working machine reports, which is what leaves
+                // the two indistinguishable. The ceiling still answers while nothing is installed,
+                // so a device that cannot host a certificate keeps reporting `unavailable` and is
+                // never mistaken for one whose certificate went missing. Recomputed every cycle
+                // rather than cached, so a change such as a Linux user installing the NSS tools is
+                // picked up without a restart.
+                match auth::check_device_status(
+                    &server_url,
+                    &fingerprint,
+                    &token,
+                    cert::reported_capability().as_str(),
+                )
+                .await
+                {
                     Ok(crate::auth::DeviceStatus::Revoked) => {
                         let _ = app_handle.emit("device-revoked", ());
                         app_handle.exit(0);
@@ -695,6 +1012,32 @@ pub fn start_heartbeat(
                     | Ok(crate::auth::DeviceStatus::Pending) => {
                         failures = 0;
                         let _ = app_handle.emit("heartbeat-ok", ());
+
+                        // Roughly every ten minutes, and never while a previous attempt is still
+                        // in its backoff window.
+                        if cycle % 20 == 1
+                            && renew_retry_after.is_none_or(|t| t <= std::time::Instant::now())
+                        {
+                            match renew_if_due(&server_url, &token, &owner).await {
+                                Ok(true) => {
+                                    let _ = app_handle.emit("cert-renewed", ());
+                                }
+                                Ok(false) => {}
+                                Err(e) => {
+                                    crate::config::log_error(
+                                        "heartbeat",
+                                        &format!("cert renew failed: {}", e),
+                                    );
+                                    // Back off for ten minutes: the failed attempt rolled back, so
+                                    // a retry is safe, but each attempt mints a new key pair and
+                                    // leaves two certificates behind until a registration succeeds.
+                                    // Once every ten minutes recovers on its own without churning
+                                    // the key store on every heartbeat.
+                                    renew_retry_after =
+                                        Some(std::time::Instant::now() + Duration::from_secs(600));
+                                }
+                            }
+                        }
                     }
                     Ok(crate::auth::DeviceStatus::Error(ref reason))
                         if reason == "SESSION_INVALID" || reason == "FINGERPRINT_MISMATCH" =>
@@ -733,8 +1076,6 @@ pub fn start_heartbeat(
                     }
                 }
             }
-            heartbeat_state.running.store(false, Ordering::SeqCst);
-            *heartbeat_state.cancel.lock().unwrap() = None;
         });
     });
 
@@ -813,9 +1154,18 @@ pub async fn test_connection(url: String) -> Result<serde_json::Value, String> {
         .build()
         .map_err(|e| e.to_string())?;
     let ping_url = format!("{}/api/auth/ping", url.trim_end_matches('/'));
-    let resp = client.get(&ping_url).send().await.map_err(|e| format!("connect failed: {}", e))?;
+    let resp = client
+        .get(&ping_url)
+        .send()
+        .await
+        .map_err(|e| format!("connect failed: {}", e))?;
     let status = resp.status().as_u16();
-    let body: serde_json::Value = resp.json().await.unwrap_or_default();
+    // 非 JSON 响应不能静默换成 null：反代/门户挂在同一个地址上时会返回一页 HTML 且状态码仍是 200，
+    // `unwrap_or_default()` 会把这种情况报成"连接成功"，用户拿着一个不是本服务端的地址也能通过测试。
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("unexpected response body (status {}): {}", status, e))?;
     let latency = start.elapsed().as_millis() as u64;
     Ok(serde_json::json!({
         "ok": status == 200,
@@ -834,6 +1184,24 @@ pub fn export_log_file(content: String, path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 读取后端错误日志（含 panic 记录）的尾部，供「导出日志」附加在用户事件日志之后。
+///
+/// 只取尾部：文件本身有 1 MiB 上限（超过会轮转），而一次故障里真正有用的永远是最后一段；
+/// 无上限地整份读取，会让附件在不该大的时候变大。
+#[tauri::command]
+pub fn read_error_log(max_bytes: usize) -> Result<String, String> {
+    let path = crate::config::get_settings_dir().join("error.log");
+    if !path.exists() {
+        // 全新安装、或运行至今没出过错。返回空串而不是错误，调用方按「没有后端日志」处理。
+        return Ok(String::new());
+    }
+    let data = std::fs::read(&path).map_err(|e| format!("Failed to read error log: {}", e))?;
+    let start = data.len().saturating_sub(max_bytes);
+    // 从任意字节偏移切分可能落在多字节字符中间，lossy 转换会把那个残字换成替换符 ——
+    // 比返回 Err 把整段日志丢掉好。
+    Ok(String::from_utf8_lossy(&data[start..]).into_owned())
+}
+
 #[tauri::command]
 pub fn export_device_key() -> Result<String, String> {
     use base64ct::{Base64, Encoding};
@@ -847,6 +1215,11 @@ pub fn export_device_key() -> Result<String, String> {
 pub fn import_device_key(b64: String) -> Result<(), String> {
     use base64ct::{Base64, Encoding};
     let data = Base64::decode_vec(&b64).map_err(|e| format!("Invalid base64: {}", e))?;
+    // 先验证再落盘：导入的内容会直接成为这台设备的身份，写进去一份读不出来的数据会让之后每个
+    // 请求都签不出来，用户只能重新登录才能恢复 —— 备份文件在那里，但不该指望人去手工还原。
+    if !crate::fingerprint::is_restorable_device_key(&data) {
+        return Err("Not a usable device key".to_string());
+    }
     let dir = crate::config::get_settings_dir();
     std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create dir: {}", e))?;
     let path = dir.join("device.key");
@@ -855,6 +1228,59 @@ pub fn import_device_key(b64: String) -> Result<(), String> {
         let backup = path.with_extension("key.bak");
         std::fs::copy(&path, &backup).map_err(|e| format!("Failed to backup: {}", e))?;
     }
-    std::fs::write(&path, &data).map_err(|e| format!("Failed to write: {}", e))?;
+    // 写的是与 fingerprint.rs 同一个文件，权限也必须一样（0600）：原来直接 fs::write，
+    // 导入过的 device.key 是 0644 —— 本机其他账号能读走设备私钥。
+    crate::fingerprint::write_key_file(&path, &data)
+        .map_err(|e| format!("Failed to write: {}", e))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HeartbeatReset, HeartbeatState};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    /// 心跳线程在跑的状态：`running` 为真、有一个取消标志。
+    fn running_state() -> Arc<HeartbeatState> {
+        Arc::new(HeartbeatState {
+            running: AtomicBool::new(true),
+            cancel: Mutex::new(Some(Arc::new(AtomicBool::new(false)))),
+            start_lock: Mutex::new(()),
+        })
+    }
+
+    /// 回归点：心跳线程 panic 时 `running` 必须被复位。否则解栈后 `running` 恒为真，
+    /// 之后每次 `start_heartbeat` 都提前返回，心跳到进程结束都不会再恢复。
+    #[test]
+    fn heartbeat_flags_are_cleared_when_the_worker_goes_away() {
+        let state = running_state();
+        drop(HeartbeatReset {
+            state: state.clone(),
+        });
+
+        assert!(!state.running.load(Ordering::SeqCst));
+        assert!(state.cancel.lock().unwrap().is_none());
+    }
+
+    /// 这个 Drop 有可能正是在别的线程 panic 展开的路上跑的；此时锁已经中毒，
+    /// 若这里再 unwrap 一次 panic，整个进程会 abort —— 比"心跳停了"严重得多。
+    /// 下面的 poison 线程会打印一条 panic 信息，是测试预期内的输出。
+    #[test]
+    fn heartbeat_reset_survives_a_poisoned_lock() {
+        let state = running_state();
+        let poisoner = state.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoner.cancel.lock().unwrap();
+            panic!("poison the mutex on purpose");
+        })
+        .join();
+        assert!(state.cancel.is_poisoned());
+
+        drop(HeartbeatReset {
+            state: state.clone(),
+        });
+
+        assert!(!state.running.load(Ordering::SeqCst));
+    }
 }

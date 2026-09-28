@@ -13,6 +13,7 @@
   "login.connFailed": "连接失败",
   "login.autoLoggingIn": "自动登录中",
   "login.autoLoginFailed": "自动登录失败",
+  "login.certReloginRequired": "请重新登录一次，以完成设备证书登记",
 
   "panel.title": "DevOps Client",
   "panel.connected": "已连接",
@@ -21,9 +22,11 @@
   "panel.deviceId": "设备 ID",
   "panel.localPort": "端口",
   "panel.openDashboard": "工作台",
+  "panel.opening": "打开中",
   "panel.quit": "退出登录",
   "panel.tabWave": "代理",
   "panel.tabLog": "日志",
+  "panel.ballHint": "单击打开工作台 · 长按复制链接",
   "panel.nickname": "昵称",
   "panel.account": "账户",
   "panel.loginTime": "登录",
@@ -40,6 +43,7 @@
   "settings.langEn": "English",
   "settings.save": "保存",
   "settings.saved": "已保存",
+  "settings.serverChanged": "服务器地址已更改，请重新登录",
 
   "error.serverError": "服务器返回异常",
   "error.revoked": "设备已被管理员撤销。",
@@ -54,6 +58,8 @@
   "panel.settings": "设置",
   "panel.deviceInfo": "设备信息",
   "panel.deviceOs": "系统",
+  "panel.deviceHostname": "主机名",
+  "panel.deviceOsVersion": "系统版本",
   "panel.viewDevice": "查看",
   "panel.deviceSerial": "序列号",
   "panel.deviceModel": "型号",
@@ -71,6 +77,7 @@
   "panel.fingerprintCopied": "指纹已复制到剪贴板",
   "panel.exportLog": "导出",
   "panel.logExported": "日志已保存",
+  "panel.logExportFailed": "日志导出失败",
 
   "panel.changePw": "修改密码",
   "panel.oldPw": "原密码",
@@ -84,7 +91,7 @@
   "panel.noServer": "服务器地址不可用",
   "panel.openFailed": "打开工作台失败",
   "panel.sessionAbnormal": "会话状态异常，请退出后重新登录",
-  "panel.linkCopied": "链接已复制，可在其他浏览器打开",
+  "panel.linkCopied": "链接已复制，工作台已打开",
   "panel.copyFailed": "复制失败，请重试",
 
   "settings.testConn": "测试",
@@ -92,6 +99,24 @@
   "settings.connOk": "连接成功",
   "settings.connFail": "连接失败",
 
-  "update.found": "发现新版本",
-  "update.installing": "正在安装更新"
+  "settings.update": "应用更新",
+  "settings.checkUpdate": "检查更新",
+  "settings.installUpdate": "立即更新",
+  "settings.currentVersion": "当前版本",
+
+  "update.found": "发现新版本：{version}",
+  "update.checking": "正在检查更新...",
+  "update.upToDate": "已是最新版本",
+  "update.checkFailed": "检查更新失败",
+  "update.unsupported": "当前环境不支持自动更新",
+  "update.downloading": "正在下载更新...",
+  "update.downloadingOf": "正在下载更新（{size}）...",
+  "update.downloaded": "已下载 {size}...",
+  "update.installing": "正在安装更新...",
+  "update.restarting": "正在重启以完成更新...",
+  "update.installFailed": "更新失败",
+
+  "window.hide": "隐藏",
+  "window.minimize": "最小化",
+  "window.close": "关闭"
 }

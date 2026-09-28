@@ -1,6 +1,5 @@
 /// Platform-specific system information: UUID, serial, OS version.
 /// Shared by fingerprint, crypto, and commands modules to avoid duplication.
-
 pub fn system_uuid() -> String {
     #[cfg(target_os = "macos")]
     {

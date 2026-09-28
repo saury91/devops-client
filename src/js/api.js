@@ -9,16 +9,9 @@ var API = (function () {
     return window.__TAURI__.core.invoke(cmd, args);
   }
 
-  function post(url, body, token) {
-    return fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Session-Id': token || ''
-      },
-      body: JSON.stringify(body || {})
-    }).then(function (r) { return r.json(); });
-  }
+  // 这里原本有一个直接 fetch 到业务服务端的 `post()`，实际没有任何调用点（所有请求都经
+  // Rust 侧的 reqwest）。删掉它不只是清理死代码：它是渲染进程里唯一的跨源网络能力，
+  // 去掉之后 CSP 的 connect-src 才能收紧到 'self' + IPC，注入脚本也就没有外发通道了。
 
   function _listenOnce(name, cb) {
     // Clean up any previous listener for this event before registering a new one.
@@ -44,7 +37,6 @@ var API = (function () {
     changePassword: function (url, token, oldPassword, newPassword) {
       return invoke('change_password', { serverUrl: url, token: token, oldPassword: oldPassword, newPassword: newPassword });
     },
-    post:          post,
     doLogin:       function (url, user, pass, dev) {
       return invoke('do_login', {
         serverUrl: url, username: user, password: pass, deviceName: dev
@@ -72,6 +64,7 @@ var API = (function () {
     getDeviceInfo: function ()     { return invoke('get_device_info'); },
     testConnection: function (url) { return invoke('test_connection', { url: url }); },
     exportLogFile: function (content, path) { return invoke('export_log_file', { content: content, path: path }); },
+    readErrorLog: function (maxBytes) { return invoke('read_error_log', { maxBytes: maxBytes }); },
     quit: function () {
       return invoke('quit_app');
     }
