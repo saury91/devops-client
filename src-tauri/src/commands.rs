@@ -1149,6 +1149,29 @@ pub fn stop_heartbeat(heartbeat_state: State<'_, Arc<HeartbeatState>>) -> Result
     Ok(())
 }
 
+/// 当前是否为本地调试构建（`tauri dev` / `cargo run`）。
+///
+/// 调试窗口和正式安装包在界面上长得一模一样，用户无法分辨眼前这个是开发时随手起的
+/// 还是装到机器上的那一份。前端据此在标题栏打上 DEV 标识。
+#[tauri::command]
+pub fn is_dev_build() -> bool {
+    cfg!(debug_assertions)
+}
+
+/// 首屏渲染完成后显示主窗口。
+///
+/// 主窗口以 `visible: false` 创建：webview 从加载 HTML 到画出第一帧这段时间里，窗口只是
+/// 一块 `backgroundColor` 纯色，用户看到的就是“点开图标弹出一个空白页”。等前端把视图、
+/// 语言、尺寸都准备好再调这里，第一帧就是最终界面。
+#[tauri::command]
+pub fn show_main_window(app_handle: AppHandle) -> Result<(), String> {
+    if let Some(window) = app_handle.get_webview_window("main") {
+        window.show().map_err(|e| e.to_string())?;
+        let _ = window.set_focus();
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn resize_window(app_handle: AppHandle, width: f64, height: f64) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("main") {

@@ -78,6 +78,10 @@ just verify     # check + build
 just run        # 打开构建后的 App
 ```
 
+`just dev`（`tauri dev`）下 app 进程归 tauri-cli 管理：手动 kill 掉 app 会被重新拉起 —— 只要 watcher 认为有变化
+（保存任何文件、改配置、Rust 重编），CLI 就会杀掉旧进程再 spawn 一个新的，看起来像"杀不死"。想手动杀 app 做冷启动
+测试，用 `just debug`（`--no-watch`）；要停掉整条 dev 链，回到跑 `just dev` 的终端 Ctrl+C。
+
 ---
 
 ## 架构
@@ -146,7 +150,7 @@ UI 表单 → API.doLogin(url, user, pass, deviceName)
   - `SESSION_INVALID`：先用指纹静默重建会话（`renew_session`），成功发 `session-renewed` 并清零失败计数；重建失败发 `connection-lost`
   - `FINGERPRINT_MISMATCH`：安全事件（该会话不属于本机），不做免密重建、不再重试心跳；写 `error.log` 并发送 `device-identity-mismatch`
   - 其他 `Error` / `NotFound` 或网络错误：累计失败，达到 3 次后发送 `connection-lost`
-- 前端收到 `connection-lost` / `device-identity-mismatch` 后调用 `_doLogout(false)`：停止心跳、清除 token、返回登录页
+- 前端收到 `connection-lost` / `device-identity-mismatch` 后调用 `_doLogout()`：停止心跳、清除 token、回填账号密码并返回登录页
 
 ### 安全模型
 
@@ -230,6 +234,8 @@ killall Finder
 - Public repo — 代码中**禁止**包含公司/服务器/内部信息
 - 服务器地址由用户手动输入，加密缓存于 `~/.devops-client/config.json`
 - 关闭窗口 = 隐藏到托盘，只有托盘菜单"退出"才真正退出
+- 主窗口是 `visible: false`，由前端把视图、语言、尺寸都就绪后调用 `show_main_window` 显示（`app.js` 的 `revealWindow`），避免出现 webview 未绘制时的纯色空窗；`app.js` 在 `DOMContentLoaded` 里留有兜底定时器，即使启动流程出异常窗口也不会永远不显示
+- `tauri.conf.json` 的 `backgroundColor` 仍应与 `styles.css` 的 `--bg`（`#0B1120`）一致；窗口隐藏期间兜底显示与缩放过程仍会短暂露出底色，改主题色时两处要同步
 - 前端无打包工具，JS 通过全局变量（`API` / `I18n` / `App` / `LoginView` / `Panel` / `Wave` / `Background` / `AvatarUtil`）通信
 - 心跳必须在登录成功后启动，登出/连接丢失时务必停止，避免无效请求
 - 退出前调用 `/api/auth/device-offline` 通知服务端下线；客户端崩溃/断网时由心跳中断（在场标记超时）兜底

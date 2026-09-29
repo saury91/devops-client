@@ -150,7 +150,8 @@ src-tauri/                      # Tauri Rust 后端
 | Windows | 凭据管理器 Credential Manager，target 名由 service 与 account 组合而成 | `token` / `password` |
 | Linux | 回落到 `config.json`（见下） | — |
 
-- 退出登录会删除对应条目；从旧版本升级时，第一次保存会自动把文件里的密码迁进凭据库。
+- 退出登录会删除 `token` 条目；`password` 条目保留，回到登录页时自动回填，不必重新输入。从旧版本升级时，第一次保存会自动把文件里的密码迁进凭据库。
+- 唯一会连密码条目一起删掉的情况：在面板里改过密码后自动退回登录页 —— 那时留着的是已经失效的旧密码，回填它只会让人登录失败。
 - macOS 上可用 `security find-generic-password -s io.github.devops-client` 查看条目。
 - **Linux 未实现**：需要 libsecret 与可用的 D-Bus 会话，无桌面会话时同样不可用。该平台保持原有行为（秘密留在加密的 `config.json` 里），不会静默丢数据。
 

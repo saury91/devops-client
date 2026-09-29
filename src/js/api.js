@@ -44,6 +44,8 @@ var API = (function () {
     },
     serverLogout:  function (url, token) { return invoke('server_logout', { serverUrl: url, token: token }); },
     autoLogin:     function (url, fp) { return invoke('auto_login', { serverUrl: url, fingerprint: fp }); },
+    isDevBuild:    function ()       { return invoke('is_dev_build'); },
+    showWindow:    function ()       { return invoke('show_main_window'); },
     resizeWindow:  function (w, h)   { return invoke('resize_window', { width: w, height: h }); },
     minimizeWindow: function ()      { return invoke('minimize_window'); },
     hideWindow:    function ()      { return invoke('hide_window'); },

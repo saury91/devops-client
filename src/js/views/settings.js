@@ -106,7 +106,7 @@ var Settings = (function () {
         previousUrl && cfg.token && comparableUrl(url) !== comparableUrl(previousUrl);
 
       if (addressChanged) {
-        // 按被动退出处理：停代理/心跳、清 token、带提示退回登录页（保留账号密码）。
+        // 停代理/心跳、清 token、带提示退回登录页（账号密码保留并回填）。
         hide();
         await App.invalidateSession(I18n.t('settings.serverChanged'));
         // 会话已清空（此时 server_url 仍为旧值），再把地址与语言落到新值。

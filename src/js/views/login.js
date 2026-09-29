@@ -71,6 +71,7 @@ var LoginView = (function () {
 
     url = url.replace(/\/+$/, '');
     msg.textContent = '';
+    refit();
     setBtnLoading(btn, true);
 
     try {
@@ -136,10 +137,16 @@ var LoginView = (function () {
     }
   }
 
+  // 提示文字会让登录页多出一行，窗口高度得跟着内容走（见 App.fitLoginWindow）
+  function refit() {
+    if (window.App && App.fitLoginWindow) App.fitLoginWindow();
+  }
+
   function showMsg(el, text) {
     el.textContent = text;
     el.classList.add('error');
     setTimeout(function () { el.classList.remove('error'); }, 350);
+    refit();
   }
 
   function applyState(state) {
@@ -149,7 +156,7 @@ var LoginView = (function () {
     if (state.username && userInput) {
       userInput.value = state.username;
     }
-    // 被动退出时回显已保存密码；主动退出（主动登出）不传 password 则留空
+    // 回显已保存的密码；没有可回显的值（首次使用，或刚改过密码被丢弃）时留空
     if (passInput) {
       passInput.value = state.password || '';
     }

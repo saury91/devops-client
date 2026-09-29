@@ -664,8 +664,9 @@ var Panel = (function () {
       await API.changePassword(_state.serverUrl, _state.token, oldPw, newPw);
       hideChangePw();
       showToast(I18n.t('panel.pwChanged'));
-      // 修改成功：自动退出，要求用新密码重新登录
-      setTimeout(function () { if (window.App) App.logout(); }, 800);
+      // 修改成功：自动退出，要求用新密码重新登录。留下的旧密码已经失效，必须一并丢弃，
+      // 否则登录页会把它回填上去，用户点一次登录就报一次「用户名或密码错误」。
+      setTimeout(function () { if (window.App) App.logout({ dropPassword: true }); }, 800);
     } catch (e) {
       if (errEl) errEl.textContent = (e && e.message) ? e.message : I18n.t('panel.pwChangeFail');
     } finally {

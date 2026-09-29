@@ -52,6 +52,8 @@ fn main() {
             commands::stop_heartbeat,
             commands::get_cert_status,
             commands::install_device_cert,
+            commands::is_dev_build,
+            commands::show_main_window,
             commands::resize_window,
             commands::minimize_window,
             commands::hide_window,
@@ -70,12 +72,14 @@ fn main() {
 
             let open_label = i18n::t(lang, "tray.open");
             let quit_label = i18n::t(lang, "tray.quit");
-            let tooltip = i18n::t(lang, "tray.tooltip");
-            let window_title = i18n::t(lang, "window.title");
+            // 调试构建在托盘提示和窗口标题上都标出来，免得和正式安装的那一份混淆。
+            let dev_suffix = if cfg!(debug_assertions) { " [DEV]" } else { "" };
+            let tooltip = format!("{}{}", i18n::t(lang, "tray.tooltip"), dev_suffix);
+            let window_title = format!("{}{}", i18n::t(lang, "window.title"), dev_suffix);
 
             // Set window title
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_title(window_title);
+                let _ = window.set_title(&window_title);
             }
 
             // 托盘相关失败都会带 Err 逃出 setup，最终变成 build() 的 panic：没有托盘就等于没有
@@ -121,7 +125,7 @@ fn main() {
 
             let _tray = match TrayIconBuilder::new()
                 .icon(icon)
-                .tooltip(tooltip)
+                .tooltip(&tooltip)
                 .menu(&menu)
                 .on_menu_event(move |app, event| match event.id().as_ref() {
                     "open" => {

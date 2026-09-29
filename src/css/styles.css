@@ -344,6 +344,20 @@ html.panel-active #bg-canvas { display: none; }
 }
 .term-spacer { width: 48px; }
 
+/* 本地调试构建标识：只在 tauri dev 下出现，用来和正式安装的那一份区分 */
+.term-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid rgba(245,166,35,0.55);
+  background: rgba(245,166,35,0.14);
+  color: #F5A623;
+  font-size: 0.38rem;
+  line-height: 1.8;
+  letter-spacing: 0.08em;
+  vertical-align: middle;
+}
+
 /* Terminal body */
 .term-body { padding: 20px 18px 24px; position: relative; }
 
