@@ -74,9 +74,11 @@ pub struct ProfileUpdate {
 /// (`~/Library/Application Support`), but on Linux Firefox keeps its state under `~/.mozilla`
 /// instead of the XDG config directory, so that one case is spelled out.
 fn profile_root() -> Option<PathBuf> {
+    // Both arms are the tail expression of the function, so `return` would be redundant — and
+    // clippy says so on Linux, where the first arm is the one that survives.
     #[cfg(target_os = "linux")]
     {
-        return dirs::home_dir().map(|home| home.join(".mozilla").join("firefox"));
+        dirs::home_dir().map(|home| home.join(".mozilla").join("firefox"))
     }
     #[cfg(not(target_os = "linux"))]
     {

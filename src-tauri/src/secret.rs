@@ -16,6 +16,10 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 /// 凭据库中的服务名，用 bundle identifier 以免与其它应用的条目冲突。
+///
+/// 门控与 [`imp`] 的 keyring 实现一致：只有它用得上这个服务名，Linux 等平台走的是下面那个
+/// 不接触凭据库的 `imp`，常量留着就是一段永远不会被读到的死代码。
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const SERVICE: &str = "io.github.devops-client";
 
 /// 账号名沿用 `config.json` 里的字段名，便于排查时一一对应。

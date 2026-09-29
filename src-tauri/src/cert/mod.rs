@@ -183,6 +183,11 @@ pub trait DeviceCertProvider: Send + Sync {
 }
 
 /// Material for a self-signed certificate produced by [`build_self_signed`].
+///
+/// Used by the macOS and Windows backends only. The shared helpers stay in this file — rather than
+/// in each backend — so their tests run on every platform, which leaves them dead code on Linux.
+/// That is why the lint is silenced per item here, exactly as [`ecdsa_sig_to_der`] does it.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 pub(crate) struct IssuedCert {
     /// DER encoded certificate.
     pub der: Vec<u8>,
@@ -202,6 +207,7 @@ pub(crate) struct IssuedCert {
 ///
 /// The signature bytes are used verbatim as the certificate's BIT STRING, so a backend must
 /// return a DER-encoded `ECDSA-Sig-Value` — not the raw `r || s` concatenation some APIs emit.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 pub(crate) fn build_self_signed(
     remote_key: Box<dyn rcgen::RemoteKeyPair + Send + Sync>,
     owner: &str,
@@ -254,6 +260,7 @@ pub(crate) fn build_self_signed(
 }
 
 /// SHA-256 digest of `bytes` as lowercase hex; the fingerprint format the server compares.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
@@ -262,6 +269,7 @@ pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 /// Lowercase hex encoding without pulling in another crate.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 pub(crate) fn hex_lower(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for b in bytes {
@@ -340,6 +348,7 @@ fn der_integer(bytes: &[u8]) -> Vec<u8> {
 /// actually installed in the key store, and then the UI lies about which certificate is in use.
 ///
 /// @return `(serial hex, not-after RFC 3339)`, or `None` when the DER is not a certificate
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 pub(crate) fn parse_cert_meta(der: &[u8]) -> Option<(String, String)> {
     // Certificate ::= SEQUENCE { tbsCertificate, signatureAlgorithm, signatureValue }
     let mut outer = DerReader::new(der);
@@ -377,6 +386,7 @@ pub(crate) fn parse_cert_meta(der: &[u8]) -> Option<(String, String)> {
 
 /// Decodes an ASN.1 UTCTime (`0x17`) or GeneralizedTime (`0x18`) into RFC 3339, both of which
 /// are always expressed as UTC in certificates.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 fn parse_asn1_time(tag: u8, value: &[u8]) -> Option<String> {
     let text = std::str::from_utf8(value).ok()?;
     let digits = text.strip_suffix('Z')?;
@@ -413,11 +423,13 @@ fn parse_asn1_time(tag: u8, value: &[u8]) -> Option<String> {
 }
 
 /// Minimal definite-length DER reader; just enough to pull two fields out of a certificate.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 struct DerReader<'a> {
     buf: &'a [u8],
     pos: usize,
 }
 
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 impl<'a> DerReader<'a> {
     fn new(buf: &'a [u8]) -> Self {
         Self { buf, pos: 0 }
@@ -465,11 +477,13 @@ impl<'a> DerReader<'a> {
 ///
 /// Applied before signing so the `not_after` we report upstream is byte-for-byte the value inside
 /// the certificate, keeping the server's renewal decision and the certificate's own expiry in step.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 fn to_second(value: time::OffsetDateTime) -> time::OffsetDateTime {
     value.replace_nanosecond(0).unwrap_or(value)
 }
 
 /// RFC 3339 rendering of `value`, the format the server's `parseCertNotAfter` understands.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 fn format_rfc3339(value: time::OffsetDateTime) -> String {
     value
         .format(&time::format_description::well_known::Rfc3339)
@@ -630,6 +644,7 @@ pub(crate) fn needs_renewal_at(not_after: &str, now: time::OffsetDateTime) -> bo
 ///
 /// @return `None` when `der` cannot be parsed, so a corrupt key-store entry degrades to
 ///         "no certificate" instead of surfacing a half-filled record to the server
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 pub(crate) fn cert_info_from_der(
     der: &[u8],
     capability: CertCapability,
