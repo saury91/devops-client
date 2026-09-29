@@ -13,7 +13,6 @@
   "login.connFailed": "Connection failed",
   "login.autoLoggingIn": "Auto logging in",
   "login.autoLoginFailed": "Auto login failed",
-  "login.certReloginRequired": "Sign in once more to register the device certificate",
 
   "panel.title": "DevOps Client",
   "panel.connected": "CONNECTED",

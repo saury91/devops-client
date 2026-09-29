@@ -50,8 +50,6 @@ fn main() {
             commands::get_dashboard_url,
             commands::start_heartbeat,
             commands::stop_heartbeat,
-            commands::get_cert_status,
-            commands::install_device_cert,
             commands::is_dev_build,
             commands::show_main_window,
             commands::resize_window,

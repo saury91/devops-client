@@ -257,75 +257,18 @@ pub async fn auto_login(server_url: &str, fingerprint: &str) -> Result<LoginResp
     Ok(result)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CertLinkResponse {
-    pub code: i32,
-    pub msg: String,
-}
-
-/// Reports the device certificate to the server.
-///
-/// `renew` selects between `bind-cert` and `renew-cert`. Both take the same payload, so they share
-/// one implementation and cannot drift apart. Failures are returned rather than swallowed because
-/// the two callers react differently: a first install must surface in the UI, while a renewal only
-/// needs a log line and a retry on a later cycle.
-///
-/// @param renew `true` for a renewal, `false` for the first registration
-/// @return `Ok(())` on success, otherwise the server message or the transport failure
-pub async fn report_cert(
-    server_url: &str,
-    token: &str,
-    renew: bool,
-    info: &crate::cert::CertInfo,
-) -> Result<(), String> {
-    let client = http_client()?;
-    let (endpoint, name) = if renew {
-        ("renew-cert", "renew_cert")
-    } else {
-        ("bind-cert", "bind_cert")
-    };
-    let url = format!("{}/api/auth/{}", server_url.trim_end_matches('/'), endpoint);
-
-    let body = serde_json::json!({
-        "certFingerprint": info.fingerprint,
-        "certSerial": info.serial,
-        "certNotAfter": info.not_after,
-        "certCapability": info.capability.as_str(),
-    });
-
-    let resp = client
-        .post(&url)
-        .header("X-Session-Id", token)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("{}: connect failed: {}", name, e))?;
-
-    let result: CertLinkResponse = resp
-        .json()
-        .await
-        .map_err(|e| format!("{}: parse response failed: {}", name, e))?;
-
-    if result.code != 200 {
-        return Err(result.msg);
-    }
-    Ok(())
-}
-
 /// Heartbeat: asks the server for this device's status.
 ///
-/// The body also carries the machine's certificate capability (`full` / `partial` /
-/// `unavailable`), which the server uses to grade enforcement so a machine that cannot hold a
-/// certificate is never locked out. The server skips the write when the value is unchanged, so
-/// repeating it every 30 seconds costs nothing.
+/// 心跳只负责「设备在场」这一件事：服务端据此刷新 `devops:device:alive:{fingerprint}`，
+/// 设备不在场时其浏览器会话会在在场窗口过期后失效。浏览器侧另有基于不可导出密钥的
+/// 设备证明心跳，两者相互独立、缺一不可。
 ///
-/// @param capability this machine's certificate capability
+/// @param fingerprint this machine's device fingerprint
 /// @return the device status as recorded by the server
 pub async fn check_device_status(
     server_url: &str,
     fingerprint: &str,
     token: &str,
-    capability: &str,
 ) -> Result<DeviceStatus, String> {
     let client = http_client()?;
 
@@ -337,10 +280,7 @@ pub async fn check_device_status(
     let resp = client
         .post(&url)
         .header("X-Session-Id", token)
-        .json(&serde_json::json!({
-            "fingerprint": fingerprint,
-            "certCapability": capability
-        }))
+        .json(&serde_json::json!({ "fingerprint": fingerprint }))
         .send()
         .await
         .map_err(|_| "Failed to connect".to_string())?;
@@ -417,16 +357,6 @@ mod tests {
             let _ = axum::serve(listener, app.into_make_service()).await;
         });
         format!("http://{}", addr)
-    }
-
-    fn cert_info() -> crate::cert::CertInfo {
-        crate::cert::CertInfo {
-            fingerprint: "ab12".to_string(),
-            serial: "0f".to_string(),
-            not_after: "2027-01-01T00:00:00Z".to_string(),
-            capability: crate::cert::CertCapability::Full,
-            store: "test",
-        }
     }
 
     #[tokio::test]
@@ -523,7 +453,7 @@ mod tests {
         );
         let base = spawn_stub(app).await;
 
-        let status = check_device_status(&base, "fp-1", "sess-9", "full")
+        let status = check_device_status(&base, "fp-1", "sess-9")
             .await
             .expect("stub answers 200");
         assert_eq!(status, DeviceStatus::Revoked);
@@ -532,7 +462,6 @@ mod tests {
         // 头部名拼错（比如写成 X-Session-Token）在服务端只表现为"会话无效"，只有这里拦得住。
         assert_eq!(session, "sess-9");
         assert_eq!(body["fingerprint"], "fp-1");
-        assert_eq!(body["certCapability"], "full");
     }
 
     #[tokio::test]
@@ -543,7 +472,7 @@ mod tests {
         );
         let base = spawn_stub(app).await;
 
-        let status = check_device_status(&base, "fp", "t", "full")
+        let status = check_device_status(&base, "fp", "t")
             .await
             .expect("401 is a mapped result, not a transport failure");
         // 心跳线程靠这个哨兵值触发被动登出，不能退化成通用的 Error("Failed to parse ...")。
@@ -592,51 +521,5 @@ mod tests {
             .await
             .expect_err("missing token must be an error");
         assert_eq!(err, "exchange token is empty");
-    }
-
-    #[tokio::test]
-    async fn report_cert_selects_endpoint_and_sends_camel_case_cert_fields() {
-        let seen = recorder();
-        let sink = seen.clone();
-        let app = Router::new().route(
-            "/api/auth/bind-cert",
-            post(move |uri: Uri, Json(body): Json<Value>| {
-                let sink = sink.clone();
-                async move {
-                    sink.lock()
-                        .expect("recorder lock")
-                        .push((uri.path().to_string(), body));
-                    Json(json!({ "code": 200, "msg": "ok" }))
-                }
-            }),
-        );
-        let base = spawn_stub(app).await;
-
-        // `renew = false` 必须打到 bind-cert。选错端点会让首装证书被当成续期处理，
-        // 服务端不会记录"这台设备已绑定"。
-        report_cert(&base, "sess-1", false, &cert_info())
-            .await
-            .expect("stub answers 200");
-
-        let (path, body) = only_call(&seen);
-        assert_eq!(path, "/api/auth/bind-cert");
-        assert_eq!(body["certFingerprint"], "ab12");
-        assert_eq!(body["certSerial"], "0f");
-        assert_eq!(body["certNotAfter"], "2027-01-01T00:00:00Z");
-        assert_eq!(body["certCapability"], "full");
-    }
-
-    #[tokio::test]
-    async fn report_cert_surfaces_server_rejection() {
-        let app = Router::new().route(
-            "/api/auth/renew-cert",
-            post(|| async { Json(json!({ "code": 409, "msg": "cert already bound" })) }),
-        );
-        let base = spawn_stub(app).await;
-
-        let err = report_cert(&base, "sess-1", true, &cert_info())
-            .await
-            .expect_err("code != 200 must be an error");
-        assert_eq!(err, "cert already bound");
     }
 }

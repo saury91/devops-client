@@ -1,10 +1,8 @@
 pub mod auth;
-pub mod cert;
 pub mod commands;
 pub mod config;
 pub mod crypto;
 pub mod fingerprint;
 pub mod i18n;
 pub mod platform;
-pub mod secret;
 pub mod state;

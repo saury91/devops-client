@@ -1,4 +1,3 @@
-use crate::secret;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -19,14 +18,6 @@ pub struct Config {
     pub nickname: String,
     #[serde(default)]
     pub language: String,
-    /// 本安装是否已完成过一次「登录时登记设备证书」的交互式登录。
-    ///
-    /// 旧版本客户端的登录从不登记证书，升级上来的配置里没有这个字段（`serde(default)` 得到
-    /// `false`）。前端启动流程据此识别这类安装：不静默续登，而是清掉会话回到登录页重新登录
-    /// 一次，由交互式登录路径补做证书登记。彻底装不了证书的机器（`unavailable`）由能力口径
-    /// 视为已登记，否则它每次启动都会被要求重新登录。
-    #[serde(default)]
-    pub cert_registered: bool,
 }
 
 const SUPPORTED_LANGUAGES: &[&str] = &["zh", "en"];
@@ -83,7 +74,7 @@ pub fn log_error(context: &str, detail: &str) {
 /// 安装 panic hook，把 panic 的位置与消息写进 `error.log`。
 ///
 /// Windows 上没有控制台（`main.rs` 首行即 `windows_subsystem = "windows"`），而主线程
-/// 之外的 panic 既不会结束进程、也不会打印到任何地方：心跳线程、代理线程、证书路径上
+/// 之外的 panic 既不会结束进程、也不会打印到任何地方：心跳线程、代理线程、工作台票据签发路径上
 /// 的一次 panic 只会表现为「某个功能悄悄不工作了」，现场还无法复现。把位置和消息落盘，
 /// 才能靠「导出日志」把它带回来。
 ///
@@ -108,59 +99,17 @@ pub fn install_panic_hook() {
     }));
 }
 
-/// 把凭据库里的秘密填回内存中的配置。
-///
-/// 文件里的对应字段为空 = 秘密在凭据库里。字段非空则是升级上来的老配置（秘密还在文件
-/// 里），下一次 `save_config` 会把它迁走，这里不动它。
-fn hydrate_secrets(config: &mut Config) {
-    if !secret::is_supported() {
-        return;
-    }
-    if config.token.is_empty() {
-        if let Some(value) = secret::load(secret::ACCOUNT_TOKEN) {
-            config.token = value;
-        }
-    }
-    if config.password.is_empty() {
-        if let Some(value) = secret::load(secret::ACCOUNT_PASSWORD) {
-            config.password = value;
-        }
-    }
-}
-
-/// 把一个秘密交给凭据库，并从即将落盘的那份配置里抹掉。
-///
-/// 返回 `true` 表示调用方应当清空文件里的值。凭据库不可用（Linux）或写入失败时返回
-/// `false`，字段保持原样写进加密的 `config.json` —— 宁可降级，也不能让用户重新输密码。
-///
-/// 空值按「用户主动清空」处理（登出流程会走到这里），此时要删掉凭据库里的条目，否则下
-/// 次加载又会把旧秘密填回来，等于「退出登录没清掉密码」。
-fn offload_secret(account: &str, value: &str) -> bool {
-    if !secret::is_supported() {
-        return false;
-    }
-    if value.is_empty() {
-        let _ = secret::delete(account);
-        return true;
-    }
-    match secret::store(account, value) {
-        Ok(()) => true,
-        Err(e) => {
-            log_error(
-                "save_config",
-                &format!(
-                    "cannot store '{}' in credential store, keeping it in config.json: {}",
-                    account, e
-                ),
-            );
-            false
-        }
-    }
-}
-
+/// 读取用户配置。文件不存在（首次运行）、解密失败或 JSON 解析失败时返回 `None`。
 pub fn load_config() -> Option<Config> {
-    let path = get_settings_dir().join("config.json");
-    let encrypted = match std::fs::read(&path) {
+    load_config_at(&get_settings_dir().join("config.json"))
+}
+
+/// 从指定路径读取配置。
+///
+/// 抽成带路径的形式，是为了让测试能在临时目录上跑完整的「落盘 → 读回」链路，不必去动
+/// 用户真实的 `~/.devops-client`。
+fn load_config_at(path: &std::path::Path) -> Option<Config> {
+    let encrypted = match std::fs::read(path) {
         Ok(b) => b,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
         Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
@@ -168,8 +117,8 @@ pub fn load_config() -> Option<Config> {
                 "load_config",
                 &format!("read access denied, repairing ACL: {}", e),
             );
-            repair_file_acl(&path);
-            match std::fs::read(&path) {
+            repair_file_acl(path);
+            match std::fs::read(path) {
                 Ok(b) => b,
                 Err(e2) => {
                     log_error(
@@ -193,11 +142,7 @@ pub fn load_config() -> Option<Config> {
         }
     };
     match serde_json::from_slice::<Config>(&data) {
-        Ok(mut config) => {
-            // 密码与 token 落在系统凭据库里，文件里对应字段是空的，读出来要补回去。
-            hydrate_secrets(&mut config);
-            Some(config)
-        }
+        Ok(config) => Some(config),
         Err(e) => {
             log_error("load_config", &format!("json parse failed: {}", e));
             None
@@ -205,8 +150,17 @@ pub fn load_config() -> Option<Config> {
     }
 }
 
+/// 保存用户配置到 `~/.devops-client/config.json`（AES-256-GCM 加密）。
 pub fn save_config(config: &Config) -> Result<(), String> {
-    let dir = get_settings_dir();
+    save_config_at(config, &get_settings_dir().join("config.json"))
+}
+
+/// 把配置写到指定路径，供 [`save_config`] 与测试使用。
+fn save_config_at(config: &Config, path: &std::path::Path) -> Result<(), String> {
+    let dir = path
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(get_settings_dir);
     std::fs::create_dir_all(&dir).map_err(|e| {
         let m = format!("Failed to create config dir: {}", e);
         log_error("save_config", &m);
@@ -224,31 +178,22 @@ pub fn save_config(config: &Config) -> Result<(), String> {
         return Err(m);
     }
 
-    // 落盘的那一份不能带秘密：config.json 的密钥是可推导的（见 secret.rs 顶部的说明），
-    // 所以先把密码与 token 交给系统凭据库，再序列化剩下的一份。
-    let mut stored = config.clone();
-    if offload_secret(secret::ACCOUNT_TOKEN, &config.token) {
-        stored.token.clear();
-    }
-    if offload_secret(secret::ACCOUNT_PASSWORD, &config.password) {
-        stored.password.clear();
-    }
-
-    let data = serde_json::to_vec(&stored).map_err(|e| {
+    // 秘密就在这一份里，由整份文件的 AES-256-GCM 加密保护 —— 不再外移到系统凭据库，
+    // 见 README「密码与会话 token 的存放位置」。
+    let data = serde_json::to_vec(config).map_err(|e| {
         let m = format!("Failed to serialize config: {}", e);
         log_error("save_config", &m);
         m
     })?;
     let encrypted = crate::crypto::encrypt(&data).inspect_err(|e| log_error("save_config", e))?;
-    let path = dir.join("config.json");
-    if let Err(e) = std::fs::write(&path, &encrypted) {
+    if let Err(e) = std::fs::write(path, &encrypted) {
         if e.kind() == std::io::ErrorKind::PermissionDenied {
             log_error(
                 "save_config",
                 &format!("write access denied, repairing ACL: {}", e),
             );
-            repair_file_acl(&path);
-            std::fs::write(&path, &encrypted).map_err(|e2| {
+            repair_file_acl(path);
+            std::fs::write(path, &encrypted).map_err(|e2| {
                 let m = format!("Failed to write config: {}", e2);
                 log_error("save_config", &m);
                 m
@@ -259,7 +204,7 @@ pub fn save_config(config: &Config) -> Result<(), String> {
             return Err(m);
         }
     }
-    restrict_file_permissions(&path).inspect_err(|e| log_error("save_config", e))?;
+    restrict_file_permissions(path).inspect_err(|e| log_error("save_config", e))?;
     Ok(())
 }
 
@@ -315,15 +260,52 @@ fn restrict_file_permissions(_path: &std::path::Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::Config;
+    use super::{load_config_at, save_config_at, Config};
 
-    // 升级前的 config.json 没有 cert_registered 字段：必须仍能解析，并落到「未登记」，
-    // 启动流程据此把老安装退回登录页重新登录一次，由交互式登录补齐证书登记。
+    // 升级前的 config.json 带着已删除的证书登记标记：必须仍能解析（多余字段被忽略），
+    // 否则老安装升级后连配置都读不出来，用户会被迫重新登录。
     #[test]
-    fn legacy_config_without_cert_registered_loads_as_unregistered() {
-        let legacy =
-            r#"{"server_url":"https://example.invalid","token":"t","username":"u","password":"p"}"#;
+    fn legacy_config_with_removed_cert_flag_still_parses() {
+        let legacy = r#"{"server_url":"https://example.invalid","token":"t","username":"u","password":"p","cert_registered":true}"#;
         let cfg: Config = serde_json::from_str(legacy).expect("legacy config must still parse");
-        assert!(!cfg.cert_registered);
+        assert_eq!(cfg.username, "u");
+    }
+
+    /// 旧配置缺少可选字段时必须落到默认值，保证升级路径不会因为字段增减而崩。
+    #[test]
+    fn legacy_config_without_optional_fields_loads_defaults() {
+        let legacy = r#"{"server_url":"https://example.invalid"}"#;
+        let cfg: Config = serde_json::from_str(legacy).expect("minimal config must still parse");
+        assert!(cfg.token.is_empty());
+        assert!(cfg.language.is_empty());
+    }
+
+    /// 秘密必须原样落在 `config.json` 里。
+    ///
+    /// 早前的版本把 token 与密码外移到系统凭据库，文件里只留空串；谁再这么改动一次，
+    /// 启动流程就会读不到会话、只能要求用户重新登录，所以把「读写回环后秘密仍在」钉死。
+    #[test]
+    fn secrets_survive_config_round_trip() {
+        let dir =
+            std::env::temp_dir().join(format!("devops-client-config-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("config.json");
+        let config = Config {
+            server_url: "https://example.invalid".to_string(),
+            token: "session-token".to_string(),
+            login_at: "2026-01-01 00:00:00".to_string(),
+            username: "u".to_string(),
+            password: "p".to_string(),
+            nickname: "n".to_string(),
+            language: "zh".to_string(),
+        };
+
+        save_config_at(&config, &path).expect("save must succeed");
+        let loaded = load_config_at(&path).expect("load must succeed");
+        assert_eq!(loaded.token, "session-token");
+        assert_eq!(loaded.password, "p");
+        assert_eq!(loaded.username, "u");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

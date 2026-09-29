@@ -13,7 +13,6 @@
   "login.connFailed": "连接失败",
   "login.autoLoggingIn": "自动登录中",
   "login.autoLoginFailed": "自动登录失败",
-  "login.certReloginRequired": "请重新登录一次，以完成设备证书登记",
 
   "panel.title": "DevOps Client",
   "panel.connected": "已连接",

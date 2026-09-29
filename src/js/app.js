@@ -237,14 +237,8 @@ var App = (function () {
       var hasPreviousLogin = cfg && cfg.server_url && cfg.token;
 
       if (hasPreviousLogin) {
-        // 旧版本客户端的登录不登记设备证书，升级上来的配置里没有 cert_registered 标记。
-        // 这种安装不能静默续登：否则设备会长期停在「已登录、服务端却没有它的证书」的状态，
-        // 所以清掉会话回到登录页（账号密码沿用已保存值，用户只需再点一次登录），
-        // 由交互式登录路径补做证书登记。
-        if (!cfg.cert_registered) {
-          await _doLogout({ notice: I18n.t('login.certReloginRequired') });
-          return;
-        }
+        // 设备绑定已改由「浏览器侧不可导出密钥的设备证明」完成，登记发生在每次打开工作台时，
+        // 不再依赖客户端登录补齐，因此这里可以直接静默续登，历史配置缺失任何标记都不受影响。
 
         // Show the dedicated auto-login page directly
         renderAutoLoginUser(cfg.nickname || cfg.username || '-');

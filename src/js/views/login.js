@@ -99,10 +99,7 @@ var LoginView = (function () {
           login_at: loginTime,
           username: user,
           password: pass,
-          nickname: nickname,
-          // 后端判定本次登录是否已把证书登记到服务端：为 false 时下次启动会被要求重新登录
-          // 一次，让登记有机会重试；装不了证书的机器按已登记处理，不会反复要求登录。
-          cert_registered: !!result.certRegistered
+          nickname: nickname
         });
 
         App.switchView('panel', {

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-DevOps Client — Tauri v2 桌面设备认证代理。作为 Web 后端服务的配套客户端，提供设备指纹注册、设备证书、客户端心跳、安全打开 Web 工作台、系统托盘常驻和国际化（中/英）能力。
+DevOps Client — Tauri v2 桌面设备认证代理。作为 Web 后端服务的配套客户端，提供设备指纹注册、客户端心跳、安全打开 Web 工作台（含设备证明引导票据）、系统托盘常驻和国际化（中/英）能力。
 
 ---
 
@@ -155,10 +155,13 @@ UI 表单 → API.doLogin(url, user, pass, deviceName)
 ### 安全模型
 
 1. 用户通过密码登录 → 服务端创建 session，客户端保存 token
-2. 客户端申请并安装设备证书 → 平台经 nginx 透传的客户端证书指纹识别这台机器
-3. 心跳持续上报 → 设备被撤销或服务端 session 失效时客户端立即退出
-4. Cookie 拷到其他机器 → 缺少匹配的客户端证书与在场状态 → 服务端拦截请求并失效对应 session
-5. fingerprint 与 session 不匹配 → 双杀：当前 session 失效 + fingerprint 所属用户全部 session 失效
+2. 打开工作台时签发一次性 exchange-token → 服务端据此建立浏览器会话，并随响应下发
+   工作台设备证明的 challenge 与 nonce
+3. 浏览器用不可导出的 WebCrypto 密钥对登记公钥并持续签名心跳 →
+   服务端刷新「已证明」标记，`AuthInterceptor` 每请求只读这个标记
+4. 心跳持续上报 → 刷新设备在场状态，设备被撤销或服务端 session 失效时客户端立即退出
+5. Cookie 拷到其他机器 → 缺少匹配的私钥（签不出有效签名）或设备不在场 → 服务端拦截请求并失效对应 session
+6. fingerprint 与 session 不匹配 → 双杀：当前 session 失效 + fingerprint 所属用户全部 session 失效
 
 ### 指纹算法
 
