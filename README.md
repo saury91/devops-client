@@ -1,13 +1,12 @@
 # DevOps Client
 
-基于 Tauri v2 的桌面设备认证代理。客户端通过设备指纹绑定、设备证书和心跳保活，与配套 Web 后端协同实现“仅在当前机器可用”的安全访问。
+基于 Tauri v2 的桌面设备认证代理。客户端负责设备指纹绑定、设备证书安装与心跳保活，为“仅在当前机器可用”提供本机侧的依据。
 
 ## 客户端流程
 
 ```
-登录/自动登录
-  → 服务端返回 session token
-  → 客户端加密保存配置（serverUrl、token、loginAt 等）
+登录 / 自动登录
+  → 加密保存配置（serverUrl、token、loginAt 等）
   → 启动 30 秒心跳
   → 进入已连接面板
 ```
@@ -15,15 +14,13 @@
 点击面板“工作台”圆球时：
 
 ```
-申请 exchange-token
-  → 系统浏览器打开 /api/auth/exchange-token?...
-  → 服务端写入浏览器专属 cookie
-  → 浏览器加载 Web 工作台
+申请一次性 exchange-token
+  → 交给系统默认浏览器打开工作台
 ```
 
-浏览器侧不再依赖本地端口探测：心跳持续向服务端上报在场状态，Web 会话按登录来源决定是否随客户端退出而失效。
+客户端不再需要监听本地端口，在线状态由心跳维持。
 
-心跳根据服务端返回状态执行不同动作：
+心跳按收到的状态执行不同动作：
 
 - `Active` / `Pending`：失败计数清零
 - `Revoked`：提示“设备已被撤销”并退出应用
@@ -36,7 +33,7 @@
 ## 功能特性
 
 - **设备绑定** — ED25519 + SHA256 生成设备指纹
-- **设备审批** — 新设备首次登录可自动审批（首台）或进入审批队列
+- **设备审批** — 新设备首次登录展示当前审批状态，未通过时在面板给出提示
 - **安全打开工作台** — 通过一次性 exchange-token 兑换浏览器 session
 - **客户端心跳** — 自动续期、撤销检测、三次失败回登录页
 - **凭据加密** — 密码与会话 token 存进系统凭据库（macOS 钥匙串 / Windows 凭据管理器），不进配置文件
@@ -176,15 +173,15 @@ src-tauri/                      # Tauri Rust 后端
 | `get_hostname` | 获取 OS 主机名 |
 | `get_os_info` | 获取 OS、OS 版本、客户端版本 |
 | `get_device_info` | 汇总设备信息供面板展示 |
-| `do_login` | 调用 `/api/auth/login-device` 登录 |
-| `auto_login` | 使用 fingerprint 调用 `/api/auth/auto-login` |
+| `do_login` | 账号密码登录并保存会话 |
+| `auto_login` | 用设备指纹免密自动登录 |
 | `get_user_info` | 获取当前登录用户信息 |
-| `change_password` | 调用 `/api/auth/change-password` |
-| `server_logout` | 调用服务端登出 |
-| `test_connection` | 探测服务端可达性与延迟 |
+| `change_password` | 修改账号密码 |
+| `server_logout` | 退出登录并让本地会话失效 |
+| `test_connection` | 探测所配置地址的可达性与延迟 |
 | `open_browser` | 使用系统默认浏览器打开 URL |
-| `open_dashboard` | 申请 exchange-token 并打开工作台 |
-| `get_dashboard_url` | 只构造工作台 URL，不打开浏览器 |
+| `open_dashboard` | 换取一次性凭证并打开工作台 |
+| `get_dashboard_url` | 只构造工作台地址，不打开浏览器 |
 | `start_heartbeat` | 启动 30 秒心跳循环 |
 | `stop_heartbeat` | 停止心跳循环 |
 | `get_cert_status` | 查询本机设备证书状态 |
@@ -252,7 +249,7 @@ CI（`.github/workflows/build.yml`）在 macOS / Ubuntu / Windows 三平台上�
 
 提交前请至少跑一次 `just ci`。`just lint` 与 CI 的 clippy 范围保持一致（都带 `--all-targets`）—— 少了它就不会检查测试代码，会变成“本地全绿、CI 报错”。
 
-Rust 侧的 HTTP 契约测试用 axum 起真实桩服务端（随机端口）并通过真实请求打过去，覆盖 URL 拼接、请求头名、JSON 字段名（camelCase）与错误码映射 —— 这些恰恰最容易写错，且在服务端只表现为一句“登录失败”。
+Rust 侧的 HTTP 契约测试用 axum 起真实桩服务（随机端口）并通过真实请求打过去，覆盖 URL 拼接、请求头名、JSON 字段名（camelCase）与错误码映射 —— 这些恰恰最容易写错，而坏了在界面上只表现为一句“登录失败”。
 
 ---
 
