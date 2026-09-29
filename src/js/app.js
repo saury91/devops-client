@@ -197,9 +197,6 @@ var App = (function () {
     Panel.init();
     Settings.init();
 
-    // Listen for agent ping from PC/browser
-    API.onProxyPing(function () { Panel.addLog('PING', true); });
-
     // Listen for heartbeat events from Rust backend
     API.onHeartbeatOk(function () { Wave.heartbeatOk(); });
     API.onHeartbeatFail(function () { Wave.heartbeatFail(); });
@@ -210,6 +207,13 @@ var App = (function () {
     // Listen for device revoked
     API.onRevoked(function () {
       showToast(I18n.t('error.revoked'), 'error');
+      _doLogout(false); // 被动退出：回显账号与密码
+    });
+
+    // Listen for device identity mismatch: the session no longer belongs to this machine.
+    // A security event rather than a network failure, so it gets its own message.
+    API.onIdentityMismatch(function () {
+      showToast(I18n.t('error.identityMismatch'), 'error');
       _doLogout(false); // 被动退出：回显账号与密码
     });
 
@@ -243,7 +247,6 @@ var App = (function () {
         var autoLoginStart = Date.now();
         var autoError = null;
         var newToken = '';
-        var port = null;
 
         try {
           var autoResult = await API.autoLogin(cfg.server_url, fp);
@@ -252,9 +255,7 @@ var App = (function () {
             throw new Error(I18n.t('login.autoLoginFailed') + ': empty token');
           }
 
-          // Start proxy + heartbeat BEFORE saving the new token
-          port = await API.getProxyPort();
-          if (!port) port = await API.startProxy(fp);
+          // Start heartbeat BEFORE saving the new token
           await API.startHeartbeat(cfg.server_url, fp);
 
           // Persist fresh token only after services started
@@ -281,9 +282,9 @@ var App = (function () {
 
         if (autoError) {
           // 走和被动退出同一条清理路径：失败点可能出现在后半程（startHeartbeat 或 saveConfig
-          // 抛错），此时本地代理已经起来了；只清 token 会把代理和心跳线程留在后台占着端口，
+          // 抛错），此时心跳线程已经起来了；只清 token 会把心跳留在后台继续续期旧会话，
           // 而界面已经回到登录页，用户再登录一次就会起第二个。
-          // _doLogout 会停服务、清 token、回填账号密码并带着提示回到登录页。
+          // _doLogout 会停心跳、清 token、回填账号密码并带着提示回到登录页。
           await _doLogout(false, I18n.t('login.autoLoginFailed') + ': ' + autoError);
           return;
         }
@@ -292,7 +293,6 @@ var App = (function () {
         switchView('panel', {
           serverUrl: cfg.server_url,
           fingerprint: fp,
-          port: port,
           token: newToken,
           auto: true,
           username: cfg.username || '',
@@ -406,7 +406,7 @@ var App = (function () {
     }
   }
 
-  // 登出会停代理与心跳、写 config、切视图。这些调用可能并发到来（设备被撤销、连接丢失、
+  // 登出会停心跳、写 config、切视图。这些调用可能并发到来（设备被撤销、连接丢失、
   // 用户手动退出、自动登录失败），并行执行时两条流程会交叉写配置、切换视图，用户最终停在哪一页
   // 取决于谁后跑完。这里把每次调用排队串行执行 —— 不合并，因为两者语义不同：
   // 手动退出要清掉保存的密码，被动退出要回填账号密码。
@@ -420,10 +420,9 @@ var App = (function () {
     return queued;
   }
 
-  // Cleanup: stop proxy + heartbeat, clear config, reset form fields (optional)
+  // Cleanup: stop heartbeat, clear config, reset form fields (optional)
   // `notice` 显示在登录页上，用于说明这次为什么被退回登录（如升级后需要重新登录一次）。
   async function doLogout(clearForm, notice) {
-    try { await API.stopProxy(); } catch (e) { console.error('stopProxy failed:', e); }
     try { await API.stopHeartbeat(); } catch (e) { console.error('stopHeartbeat failed:', e); }
     Panel.cleanup();
     var cfg = await API.loadConfig();
@@ -469,7 +468,6 @@ var App = (function () {
   }
 
   async function quitApp() {
-    try { await API.stopProxy(); } catch (e) { console.error('quit: stopProxy failed:', e); }
     try { await API.stopHeartbeat(); } catch (e) { console.error('quit: stopHeartbeat failed:', e); }
     Panel.cleanup();
     API.quit();

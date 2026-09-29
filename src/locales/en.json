@@ -20,7 +20,6 @@
   "panel.autoConnected": "DEVICE RECOGNIZED",
   "panel.server": "Server",
   "panel.deviceId": "Device ID",
-  "panel.localPort": "Port",
   "panel.openDashboard": "Dashboard",
   "panel.opening": "Opening",
   "panel.quit": "Logout",
@@ -52,6 +51,7 @@
   "error.accountLocked": "Account is locked",
   "error.networkError": "Network error — please check your connection",
   "error.sessionExpired": "Session expired — please login again",
+  "error.identityMismatch": "Device identity check failed — please sign in again",
   "error.connectionLost": "Connection to server lost",
   "error.ok": "OK",
 
@@ -69,7 +69,6 @@
   "panel.deviceDisk": "Disk",
   "panel.noDeviceInfo": "No hardware info available",
   "panel.diagnostics": "Diagnostics",
-  "panel.diagPort": "Proxy Port",
   "panel.diagLatency": "Latency",
   "panel.diagLastHb": "Last HB",
   "panel.diagLastEvent": "Last Event",

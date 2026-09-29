@@ -20,7 +20,6 @@
   "panel.autoConnected": "设备已识别",
   "panel.server": "服务端",
   "panel.deviceId": "设备 ID",
-  "panel.localPort": "端口",
   "panel.openDashboard": "工作台",
   "panel.opening": "打开中",
   "panel.quit": "退出登录",
@@ -52,6 +51,7 @@
   "error.accountLocked": "账号已被锁定",
   "error.networkError": "网络错误 — 请检查网络连接",
   "error.sessionExpired": "会话已过期 — 请重新登录",
+  "error.identityMismatch": "设备身份校验未通过，请重新登录",
   "error.connectionLost": "与服务器的连接已断开",
   "error.ok": "确定",
 
@@ -69,7 +69,6 @@
   "panel.deviceDisk": "磁盘",
   "panel.noDeviceInfo": "暂无硬件信息",
   "panel.diagnostics": "诊断信息",
-  "panel.diagPort": "代理端口",
   "panel.diagLatency": "延迟",
   "panel.diagLastHb": "上次心跳",
   "panel.diagLastEvent": "上次事件",

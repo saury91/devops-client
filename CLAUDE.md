@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-DevOps Client — Tauri v2 桌面设备认证代理。作为 Web 后端服务的配套客户端，提供设备指纹注册、本地 HTTP 代理、客户端心跳、安全打开 Web 工作台、系统托盘常驻和国际化（中/英）能力。
+DevOps Client — Tauri v2 桌面设备认证代理。作为 Web 后端服务的配套客户端，提供设备指纹注册、设备证书、客户端心跳、安全打开 Web 工作台、系统托盘常驻和国际化（中/英）能力。
 
 ---
 
@@ -48,11 +48,10 @@ src-tauri/                    # Tauri Rust 后端
     ├── main.rs               # 入口：窗口、托盘、生命周期、全局快捷键
     ├── lib.rs                # 模块声明
     ├── commands.rs           # 全部 Tauri IPC 命令
-    ├── state.rs              # ProxyState, HeartbeatState
+    ├── state.rs              # HeartbeatState
     ├── config.rs             # Config 结构体 + 读写（~/.devops-client/config.json，AES 加密）
     ├── fingerprint.rs        # ED25519 + SHA256 设备指纹
     ├── crypto.rs             # AES-256-GCM 本地加密/解密
-    ├── proxy.rs              # Axum HTTP 本地代理（/ping）
     ├── auth.rs               # Reqwest HTTP 客户端 + 设备认证 API
     ├── error.rs              # AppError（带 i18n 消息）
     └── i18n.rs               # 语言检测 + 翻译表
@@ -89,11 +88,10 @@ just run        # 打开构建后的 App
 |------|------|
 | `main.rs` | 入口：窗口创建、系统托盘、生命周期事件、窗口拖拽/关闭行为 |
 | `commands.rs` | 所有 `#[tauri::command]` IPC 处理器 |
-| `state.rs` | 状态管理：代理运行状态、心跳状态、当前 fingerprint |
+| `state.rs` | 状态管理：心跳状态、当前 fingerprint |
 | `config.rs` | 配置读写：`~/.devops-client/config.json`（AES-256-GCM 加密） |
 | `fingerprint.rs` | 设备指纹：ED25519 密钥对 + SHA256 |
 | `crypto.rs` | 本地 AES-256-GCM 加密，密钥由机器 UUID + 用户名派生 |
-| `proxy.rs` | HTTP 本地代理：启动/停止、可用端口查找、`/ping` 响应 |
 | `auth.rs` | API 客户端：`login-device`、`auto-login`、`device-status`、`create-exchange-token`、`get-user-info` |
 | `error.rs` | 错误类型：带 i18n 消息的 AppError |
 | `i18n.rs` | 国际化：Lang 枚举、语言检测、翻译函数 |
@@ -117,7 +115,6 @@ UI 表单 → API.doLogin(url, user, pass, deviceName)
   → Rust POST /api/auth/login-device（携带 fingerprint、os、clientVersion、deviceInfo）
   → 成功:
     → 保存 config.json（serverUrl、token、fingerprint、loginAt 等，AES 加密）
-    → 启动本地 HTTP 代理 (127.0.0.1:{随机端口})
     → 启动心跳（每 30s POST /api/auth/device-status，Header X-Session-Id）
     → 切换到已连接面板
   → pending: 显示"需要管理员审批"
@@ -130,7 +127,7 @@ UI 表单 → API.doLogin(url, user, pass, deviceName)
 点击面板"工作台"圆球
   → Rust POST /api/auth/create-exchange-token（X-Session-Id）
   → 获取 exchangeToken
-  → 系统浏览器打开 /api/auth/exchange-token?exchangeToken=...&port=...
+  → 系统浏览器打开 /api/auth/exchange-token?exchangeToken=...
   → 后端校验原 session → 新建浏览器独立 session → 写入 SESSION_ID cookie
   → 按账号类型重定向：普通账号 → /dashboard，管理账号 → /index
 ```
@@ -146,16 +143,17 @@ UI 表单 → API.doLogin(url, user, pass, deviceName)
 - 客户端状态处理：
   - `Active` / `Pending`：失败计数清零
   - `Revoked`：发送 `device-revoked` 事件并退出应用
-  - `SESSION_INVALID` / `FINGERPRINT_MISMATCH`：立即发送 `connection-lost` 事件
+  - `SESSION_INVALID`：先用指纹静默重建会话（`renew_session`），成功发 `session-renewed` 并清零失败计数；重建失败发 `connection-lost`
+  - `FINGERPRINT_MISMATCH`：安全事件（该会话不属于本机），不做免密重建、不再重试心跳；写 `error.log` 并发送 `device-identity-mismatch`
   - 其他 `Error` / `NotFound` 或网络错误：累计失败，达到 3 次后发送 `connection-lost`
-- 前端收到 `connection-lost` 后调用 `_doLogout(false)`：停止 proxy、停止心跳、清除 token、返回登录页
+- 前端收到 `connection-lost` / `device-identity-mismatch` 后调用 `_doLogout(false)`：停止心跳、清除 token、返回登录页
 
 ### 安全模型
 
 1. 用户通过密码登录 → 服务端创建 session，客户端保存 token
-2. Agent 启动本地 HTTP 服务器 → 浏览器通过 `fetch(http://127.0.0.1:{port}/ping)` 验证 agent 存在
+2. 客户端申请并安装设备证书 → 平台经 nginx 透传的客户端证书指纹识别这台机器
 3. 心跳持续上报 → 设备被撤销或服务端 session 失效时客户端立即退出
-4. Cookie 拷到其他机器 → 缺少本地 agent ping → 服务端触发 `/api/auth/device-offline` 并失效 session
+4. Cookie 拷到其他机器 → 缺少匹配的客户端证书与在场状态 → 服务端拦截请求并失效对应 session
 5. fingerprint 与 session 不匹配 → 双杀：当前 session 失效 + fingerprint 所属用户全部 session 失效
 
 ### 指纹算法
@@ -233,5 +231,5 @@ killall Finder
 - 服务器地址由用户手动输入，加密缓存于 `~/.devops-client/config.json`
 - 关闭窗口 = 隐藏到托盘，只有托盘菜单"退出"才真正退出
 - 前端无打包工具，JS 通过全局变量（`API` / `I18n` / `App` / `LoginView` / `Panel` / `Wave` / `Background` / `AvatarUtil`）通信
-- 心跳与 proxy 必须在登录成功后启动，登出/连接丢失时务必停止，避免端口占用和无效请求
-- 本地代理使用纯 HTTP 并仅绑定 `127.0.0.1`，不对外提供服务，无需 TLS 证书
+- 心跳必须在登录成功后启动，登出/连接丢失时务必停止，避免无效请求
+- 退出前调用 `/api/auth/device-offline` 通知服务端下线；客户端崩溃/断网时由心跳中断（在场标记超时）兜底

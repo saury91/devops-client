@@ -19,7 +19,6 @@ var Panel = (function () {
   var _pressActive = false;
   var _presetUrl = '';
   var _presetAt = 0;
-  var _presetPort = 0;
   var _lastHeartbeatTime = null;
   var _serverLatency = '-';
   var _lastEvent = '-';
@@ -69,6 +68,16 @@ var Panel = (function () {
     await refreshUserInfo();
     renderLogs();
     document.addEventListener('visibilitychange', onVisibilityChange);
+
+    // 心跳发现会话在服务端已过期（合盖睡眠等）时会按指纹免密重建，并把新 token 送过来。
+    // 面板持有的 token 停在登录那一刻，不更新的话「打开工作台」「复制链接」都会拿旧会话去
+    // 兑换令牌而失败，自愈就等于只做了一半。
+    API.onSessionRenewed(function (event) {
+      var token = event && event.payload ? event.payload : '';
+      if (!token || !_state) return;
+      _state.token = token;
+      addLog('AGENT', true);
+    });
 
     // Avatar triple-click → copy fingerprint
     wireAvatarCopy();
@@ -229,7 +238,6 @@ var Panel = (function () {
     }
 
     var rows = [
-      { label: I18n.t('panel.diagPort'),        value: (_state && _state.port) ? String(_state.port) : '-' },
       { label: I18n.t('panel.diagLatency'),     value: _serverLatency },
       { label: I18n.t('panel.diagLastHb'),      value: _lastHeartbeatTime ? formatTime(new Date(_lastHeartbeatTime)) : '-' },
       { label: I18n.t('panel.diagLastEvent'),   value: _lastEvent || '-' },
@@ -256,12 +264,12 @@ var Panel = (function () {
         return;
       }
       if (_lastHeartbeatTime) {
-        var hbEl = document.getElementById('diag-val-2');
+        var hbEl = document.getElementById('diag-val-1');
         if (hbEl) hbEl.textContent = formatTime(new Date(_lastHeartbeatTime));
       }
-      var evtEl = document.getElementById('diag-val-3');
+      var evtEl = document.getElementById('diag-val-2');
       if (evtEl) evtEl.textContent = _lastEvent || '-';
-      var latEl = document.getElementById('diag-val-1');
+      var latEl = document.getElementById('diag-val-0');
       if (latEl) latEl.textContent = _serverLatency;
     }, 1000);
   }
@@ -326,7 +334,7 @@ var Panel = (function () {
   }
 
   function addLog(type, ok) {
-    if (type === 'HB' || type === 'PING') _lastHeartbeatTime = Date.now();
+    if (type === 'HB') _lastHeartbeatTime = Date.now();
     _lastEvent = type + ' ' + (ok ? 'ok' : 'fail');
     addLogEntry(type, ok ? 'ok' : 'fail');
     renderLogs();
@@ -494,9 +502,8 @@ var Panel = (function () {
   // 长按球球：生成可打开的 exchange URL 并复制，供用户自行选择浏览器打开
   async function copyDashboardUrl() {
     if (!_state || !_state.token) return;
-    var port = await resolveProxyPort();
     try {
-      var url = await API.getDashboardUrl(_state.serverUrl, _state.token, port);
+      var url = await API.getDashboardUrl(_state.serverUrl, _state.token);
       var ok = await copyText(url);
       showToast(ok ? I18n.t('panel.linkCopied') : I18n.t('panel.copyFailed'));
     } catch (e) {
@@ -528,27 +535,15 @@ var Panel = (function () {
     });
   }
 
-  // 读取当前代理端口：优先用本地 state，失败时回退到 Rust 侧实时值
-  async function resolveProxyPort() {
-    var port = (_state && _state.port) ? _state.port : 0;
-    try {
-      var live = await API.getProxyPort();
-      if (live) port = live;
-    } catch (_) {}
-    return port;
-  }
-
   // 预生成一次性 exchange URL：进面板时提前换取，点击时直接打开，省掉点击后的网络往返
   async function prefetchDashboardUrl() {
     clearPreset();
     if (!_state || !_state.token) return;
     try {
-      var port = await resolveProxyPort();
-      var url = await API.getDashboardUrl(_state.serverUrl, _state.token, port);
+      var url = await API.getDashboardUrl(_state.serverUrl, _state.token);
       if (url) {
         _presetUrl = url;
         _presetAt = Date.now();
-        _presetPort = port;
       }
     } catch (e) {
       // 预取失败不影响正常点击流程，点击时会退回实时创建
@@ -559,23 +554,16 @@ var Panel = (function () {
   function clearPreset() {
     _presetUrl = '';
     _presetAt = 0;
-    _presetPort = 0;
   }
 
   /**
-   * 取出预生成 URL；超过安全期、端口已变化或已被取用则返回空串。
+   * 取出预生成 URL；超过安全期或已被取用则返回空串。
    *
-   * @param livePort 当前实时代理端口，用于校验预取时的端口是否已失效
    * @return 可用的 exchange URL，不可用时返回空串
    */
-  function takePresetUrl(livePort) {
+  function takePresetUrl() {
     if (!_presetUrl) return '';
     if (Date.now() - _presetAt > PRESET_TTL_MS) {
-      clearPreset();
-      return '';
-    }
-    // 端口变化后旧链接里的 port 会让 exchange 页面用错端口做本地 ping，直接丢弃
-    if (livePort && _presetPort && livePort !== _presetPort) {
       clearPreset();
       return '';
     }
@@ -608,12 +596,8 @@ var Panel = (function () {
         return;
       }
 
-      // 本地 IPC 读一次实时端口（开销极小），用于校验预取链接里的 port 是否仍有效
-      var livePort = 0;
-      try { livePort = await API.getProxyPort(); } catch (_) {}
-
       // 优先使用进面板时预生成的 URL，点击后几乎立即打开
-      var preset = takePresetUrl(livePort || 0);
+      var preset = takePresetUrl();
       if (preset) {
         try {
           await API.openBrowser(preset);
@@ -623,10 +607,9 @@ var Panel = (function () {
         }
       }
 
-      // 回退路径：实时创建一次性 token，避免 exchange 页面用失效端口做本地 ping 校验
-      var port = livePort || (_state.port || 0);
+      // 回退路径：实时创建一次性 token 打开工作台
       try {
-        await API.openDashboard(_state.serverUrl, _state.token, port);
+        await API.openDashboard(_state.serverUrl, _state.token);
       } catch (e) {
         console.error('openDashboard failed:', e);
         showToast(friendlyOpenError(e));

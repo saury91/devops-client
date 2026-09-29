@@ -11,8 +11,7 @@ use crate::config::{load_config, save_config, Config};
 use crate::fingerprint;
 use crate::i18n::{self, Lang};
 use crate::platform;
-use crate::proxy;
-use crate::state::{HeartbeatState, ProxyState};
+use crate::state::HeartbeatState;
 
 fn validate_server_url(server_url: &str) -> Result<(), String> {
     if server_url.is_empty() {
@@ -689,33 +688,69 @@ pub async fn auto_login(
     Ok(serde_json::json!({ "token": token }))
 }
 
+/// 向服务端上报本机已离线（`POST /api/auth/device-offline`），失败只记日志。
+///
+/// 服务端据此立刻清掉本设备的在场标记并失效这台设备的会话，不必等标记 TTL 自然过期；
+/// 请求没发出去时语义仍然正确，只是退化成超时兜底。
+///
+/// @param server_url 服务端地址
+/// @param token      当前会话 ID
+/// @param timeout    请求超时：登出路径可以等，退出路径必须短
+async fn post_device_offline(server_url: &str, token: &str, timeout: Duration) {
+    let client = match reqwest::Client::builder()
+        .danger_accept_invalid_certs(false)
+        .timeout(timeout)
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            crate::config::log_error("logout", &format!("failed to build http client: {}", e));
+            return;
+        }
+    };
+
+    // Only call device-offline — /logout is a browser-side convenience path
+    let url = format!(
+        "{}/api/auth/device-offline",
+        server_url.trim_end_matches('/')
+    );
+    // 只记日志，不往上返回错误：调用方都已经完成了本地动作（清 token / 退出进程），这一步只是
+    // 尽量让服务端早点把这台设备标记为离线，服务端不可达不该让用户卡在流程里。
+    if let Err(e) = client.post(&url).header("X-Session-Id", token).send().await {
+        crate::config::log_error("logout", &format!("device-offline request failed: {}", e));
+    }
+}
+
 #[tauri::command]
 pub async fn server_logout(server_url: String, token: String) -> Result<(), String> {
     if !server_url.is_empty() {
         validate_server_url(&server_url)?;
     }
-    let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(false)
-        .timeout(Duration::from_secs(10))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let base = server_url.trim_end_matches('/');
-    // Only call device-offline — /logout is a browser-side convenience path
-    let url = format!("{}/api/auth/device-offline", base);
-    // 只记日志，不往上返回错误：本地登出已经完成（token 会被清掉），这一步只是尽量让服务端
-    // 早点把这台设备标记为离线，服务端不可达不该让用户卡在登出流程里。原先是 `let _ =`，
-    // 请求失败连一行记录都没有。
-    if let Err(e) = client
-        .post(&url)
-        .header("X-Session-Id", &token)
-        .send()
-        .await
-    {
-        crate::config::log_error("logout", &format!("device-offline request failed: {}", e));
-    }
-
+    post_device_offline(&server_url, &token, Duration::from_secs(10)).await;
     Ok(())
+}
+
+/// 退出进程前尽力通知服务端本机已离线。
+///
+/// 由 `RunEvent::ExitRequested` 调用，覆盖托盘「退出」、面板的退出按钮、macOS 的 Cmd+Q 等全部出口：
+/// 服务端会立刻失效这台设备的桌面端会话，以及由客户端打开的浏览器工作台会话，而不是等在场标记的
+/// TTL（默认 300 秒）自然过期。
+///
+/// 超时取 2 秒（登出路径是 10 秒）：退出时用户已经在等进程结束，服务端不可达不该让窗口僵住。
+/// 被强杀（SIGKILL）时本函数根本不会执行，那种情况仍由心跳中断兜底。
+pub fn notify_device_offline() {
+    let config = match load_config() {
+        Some(c) => c,
+        None => return,
+    };
+    if config.server_url.is_empty() || config.token.is_empty() {
+        return;
+    }
+    tauri::async_runtime::block_on(post_device_offline(
+        &config.server_url,
+        &config.token,
+        Duration::from_secs(2),
+    ));
 }
 
 /// Reports what this machine can do and whether a certificate is installed, without installing one.
@@ -761,44 +796,6 @@ pub async fn install_device_cert(
 }
 
 #[tauri::command]
-pub fn start_proxy(
-    fingerprint: String,
-    proxy_state: State<'_, Arc<ProxyState>>,
-    app_handle: AppHandle,
-) -> Result<u16, String> {
-    // Serialize all start attempts to prevent double-start
-    let _lock = proxy_state.start_lock.lock().unwrap();
-
-    if proxy_state.running.load(Ordering::SeqCst) {
-        if let Some(port) = *proxy_state.port.lock().unwrap() {
-            return Ok(port);
-        }
-    }
-
-    let (port, shutdown_tx) = proxy::start_proxy(fingerprint.clone(), app_handle)?;
-    proxy_state.running.store(true, Ordering::SeqCst);
-    *proxy_state.port.lock().unwrap() = Some(port);
-    *proxy_state.shutdown_tx.lock().unwrap() = Some(shutdown_tx);
-    Ok(port)
-}
-
-#[tauri::command]
-pub fn stop_proxy(proxy_state: State<'_, Arc<ProxyState>>) -> Result<(), String> {
-    proxy_state.running.store(false, Ordering::SeqCst);
-    *proxy_state.port.lock().unwrap() = None;
-    // Send shutdown signal
-    if let Some(tx) = proxy_state.shutdown_tx.lock().unwrap().take() {
-        let _ = tx.send(());
-    }
-    Ok(())
-}
-
-#[tauri::command]
-pub fn get_proxy_port(proxy_state: State<'_, Arc<ProxyState>>) -> Result<Option<u16>, String> {
-    Ok(*proxy_state.port.lock().unwrap())
-}
-
-#[tauri::command]
 pub fn open_browser(url: String) -> Result<(), String> {
     let parsed = Url::parse(&url).map_err(|e| format!("Invalid URL: {}", e))?;
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
@@ -812,7 +809,7 @@ pub fn open_browser(url: String) -> Result<(), String> {
     let result = {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
-        // 用 rundll32 直接调默认浏览器，不经 cmd shell，& 不会被当作命令分隔符，port 等参数完整保留
+        // 用 rundll32 直接调默认浏览器，不经 cmd shell，& 不会被当作命令分隔符，查询参数完整保留
         std::process::Command::new("rundll32")
             .arg("url.dll,FileProtocolHandler")
             .arg(&url)
@@ -831,23 +828,19 @@ pub fn open_browser(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn open_dashboard(server_url: String, token: String, port: u16) -> Result<(), String> {
-    let url = build_dashboard_url(&server_url, &token, port).await?;
+pub async fn open_dashboard(server_url: String, token: String) -> Result<(), String> {
+    let url = build_dashboard_url(&server_url, &token).await?;
     open_browser(url)
 }
 
 #[tauri::command]
-pub async fn get_dashboard_url(
-    server_url: String,
-    token: String,
-    port: u16,
-) -> Result<String, String> {
-    build_dashboard_url(&server_url, &token, port).await
+pub async fn get_dashboard_url(server_url: String, token: String) -> Result<String, String> {
+    build_dashboard_url(&server_url, &token).await
 }
 
 /// 构建打开工作台的 exchange URL（创建 exchange token 但不打开浏览器），
 /// 供“长按复制链接”使用，与 open_dashboard 走同一套逻辑。
-async fn build_dashboard_url(server_url: &str, token: &str, port: u16) -> Result<String, String> {
+async fn build_dashboard_url(server_url: &str, token: &str) -> Result<String, String> {
     if token.is_empty() {
         return Ok(server_url.trim_end_matches('/').to_string());
     }
@@ -870,11 +863,8 @@ async fn build_dashboard_url(server_url: &str, token: &str, port: u16) -> Result
     let base = server_url.trim_end_matches('/');
     let mut url = Url::parse(base).map_err(|e| e.to_string())?;
     url.set_path("/api/auth/exchange-token");
-    {
-        let mut pairs = url.query_pairs_mut();
-        pairs.append_pair("exchangeToken", &exchange_token);
-        pairs.append_pair("port", &port.to_string());
-    }
+    url.query_pairs_mut()
+        .append_pair("exchangeToken", &exchange_token);
     Ok(url.to_string())
 }
 
@@ -899,6 +889,39 @@ impl Drop for HeartbeatReset {
             *cancel = None;
         }
     }
+}
+
+/// 会话在服务端已失效时，按指纹免密重建一个。
+///
+/// 心跳是设备在场的唯一依据：循环一旦退出，在场标记到期后这台设备就会被判为离线，用户打开
+/// 工作台只能看到离线页，且必须重新登录才能恢复。触发条件很常见——笔记本合盖睡眠期间进程被
+/// 挂起，会话在 Redis 里到期，唤醒后第一次心跳就会拿到 `SESSION_INVALID`。因此这里不能退出
+/// 循环，而要走启动时「静默续登」的同一条路径把会话换回来。
+///
+/// 设备被撤销、未登记，或服务端不可达时返回 `Err`，由调用方退回原行为（回登录页）：那时用户
+/// 需要看到原因并自己处理，而不是留一个「界面说已登录、服务端却收不到心跳」的客户端。
+///
+/// 新会话必须落盘。心跳每轮都从配置文件重读 token，写不进去就会拿旧会话反复触发本函数，
+/// 于是每 30 秒白跑一次免密登录；而工作台兑换令牌、退出时的离线上报读的同样是这份配置。
+///
+/// @param server_url  服务端地址
+/// @param fingerprint 本机设备指纹
+/// @return 重建后的会话 ID
+async fn renew_session(server_url: &str, fingerprint: &str) -> Result<String, String> {
+    let resp = crate::auth::auto_login(server_url, fingerprint).await?;
+    if resp.code != 200 {
+        return Err(resp.msg);
+    }
+    let token = resp
+        .data
+        .and_then(|d| d.token)
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| "auto-login returned an empty token".to_string())?;
+
+    let mut config = load_config().ok_or_else(|| "config is missing".to_string())?;
+    config.token = token.clone();
+    save_config(&config)?;
+    Ok(token)
 }
 
 #[tauri::command]
@@ -1040,9 +1063,44 @@ pub fn start_heartbeat(
                         }
                     }
                     Ok(crate::auth::DeviceStatus::Error(ref reason))
-                        if reason == "SESSION_INVALID" || reason == "FINGERPRINT_MISMATCH" =>
+                        if reason == "SESSION_INVALID" =>
                     {
-                        let _ = app_handle.emit("connection-lost", ());
+                        // 会话在服务端过期（合盖睡眠、长时间无请求等）。这里自愈而不是退出循环，
+                        // 否则在场标记随之停更，用户会被判为离线并被迫重新登录，见 renew_session。
+                        match renew_session(&server_url, &fingerprint).await {
+                            Ok(token) => {
+                                crate::config::log_error(
+                                    "heartbeat",
+                                    "session expired; re-established silently by fingerprint",
+                                );
+                                // 界面持有的是登录那一刻的 token，不通知就会用旧会话去兑换工作台令牌
+                                let _ = app_handle.emit("session-renewed", token);
+                                failures = 0;
+                                let _ = app_handle.emit("heartbeat-ok", ());
+                                continue;
+                            }
+                            Err(e) => {
+                                crate::config::log_error(
+                                    "heartbeat",
+                                    &format!("session expired and silent re-login failed: {}", e),
+                                );
+                                let _ = app_handle.emit("connection-lost", ());
+                                break;
+                            }
+                        }
+                    }
+                    Ok(crate::auth::DeviceStatus::Error(ref reason))
+                        if reason == "FINGERPRINT_MISMATCH" =>
+                    {
+                        // 指纹对不上说明这个会话不属于本机：服务端已把它连同请求指纹归属账号的
+                        // 会话一并失效。这是安全事件而不是网络故障，既不做免密重建，也不重试
+                        // 心跳；单独发事件让界面提示「重新登录」，并本地留痕便于事后审计。
+                        crate::config::log_error(
+                            "heartbeat",
+                            "fingerprint does not match this session; heartbeat stopped, \
+                             identity mismatch reported",
+                        );
+                        let _ = app_handle.emit("device-identity-mismatch", ());
                         break;
                     }
                     Ok(crate::auth::DeviceStatus::Error(_))
@@ -1112,13 +1170,8 @@ pub fn minimize_window(app_handle: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn quit_app(
     app_handle: AppHandle,
-    proxy_state: State<'_, Arc<ProxyState>>,
     heartbeat_state: State<'_, Arc<HeartbeatState>>,
 ) -> Result<(), String> {
-    proxy_state.running.store(false, Ordering::SeqCst);
-    if let Some(tx) = proxy_state.shutdown_tx.lock().unwrap().take() {
-        let _ = tx.send(());
-    }
     heartbeat_state.running.store(false, Ordering::SeqCst);
     if let Some(cancel) = heartbeat_state.cancel.lock().unwrap().take() {
         cancel.store(false, Ordering::SeqCst);

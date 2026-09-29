@@ -6,6 +6,5 @@ pub mod crypto;
 pub mod fingerprint;
 pub mod i18n;
 pub mod platform;
-pub mod proxy;
 pub mod secret;
 pub mod state;

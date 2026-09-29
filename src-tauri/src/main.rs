@@ -5,10 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use tauri::Manager;
 
-use devops_client::{
-    commands, config, i18n,
-    state::{HeartbeatState, ProxyState},
-};
+use devops_client::{commands, config, i18n, state::HeartbeatState};
 
 fn main() {
     // 必须最先装：托盘构建失败、后台线程 panic 这些都发生在后面，而 Windows 上没有控制台，
@@ -19,13 +16,6 @@ fn main() {
     // Argon2 解密和机器识别。设备密钥是懒创建的，前端加载时会走 get_fingerprint 命令。
     let lang = i18n::detect_lang();
 
-    let proxy_state = Arc::new(ProxyState {
-        running: AtomicBool::new(false),
-        port: Mutex::new(None),
-        shutdown_tx: Mutex::new(None),
-        start_lock: Mutex::new(()),
-    });
-
     let heartbeat_state = Arc::new(HeartbeatState {
         running: AtomicBool::new(false),
         cancel: Mutex::new(None),
@@ -33,7 +23,6 @@ fn main() {
     });
 
     tauri::Builder::default()
-        .manage(proxy_state.clone())
         .manage(heartbeat_state.clone())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
@@ -56,9 +45,6 @@ fn main() {
             commands::server_logout,
             commands::change_password,
             commands::auto_login,
-            commands::start_proxy,
-            commands::stop_proxy,
-            commands::get_proxy_port,
             commands::open_browser,
             commands::open_dashboard,
             commands::get_dashboard_url,
@@ -123,7 +109,6 @@ fn main() {
                 }
             };
 
-            let proxy_state_clone = proxy_state.clone();
             // macOS 菜单栏使用白色版图标（与其它菜单栏图标风格一致）；其它平台与 Dock 应用图标仍用彩色
             #[cfg(target_os = "macos")]
             let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-white.png"))
@@ -146,10 +131,6 @@ fn main() {
                         }
                     }
                     "quit" => {
-                        proxy_state_clone.running.store(false, Ordering::SeqCst);
-                        if let Some(tx) = proxy_state_clone.shutdown_tx.lock().unwrap().take() {
-                            let _ = tx.send(());
-                        }
                         let hb = app.state::<Arc<HeartbeatState>>();
                         hb.running.store(false, Ordering::SeqCst);
                         if let Some(cancel) = hb.cancel.lock().unwrap().take() {
@@ -192,6 +173,13 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
+            // 退出前最后一步：尽力通知服务端本机已离线，让服务端立刻失效这台设备的桌面端与
+            // 浏览器端会话，而不是等在场标记的 TTL（默认 300 秒）自然过期。托盘「退出」、面板的
+            // 退出按钮、macOS 的 Cmd+Q 最终都经 app.exit() 触发本事件，挂这一个出口即可全覆盖。
+            // 内部带 2 秒超时且失败只记日志，不会把退出流程卡住。
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                commands::notify_device_offline();
+            }
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {
                 if let Some(window) = app_handle.get_webview_window("main") {
@@ -202,7 +190,6 @@ fn main() {
             #[cfg(not(target_os = "macos"))]
             {
                 let _ = app_handle;
-                let _ = event;
             }
         });
 }

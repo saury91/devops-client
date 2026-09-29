@@ -36,8 +36,8 @@ var LoginView = (function () {
   }
 
   // 登录是否正在进行中。Enter 是直接调用 handleLogin 的，绕过了按钮的 disabled，
-  // 连按 Enter 或双击登录会让两条登录流程并发跑：各自 do_login、各自 startProxy、
-  // 各自写 config，可能起两个代理线程并互相覆盖配置。
+  // 连按 Enter 或双击登录会让两条登录流程并发跑：各自 do_login、各自 startHeartbeat、
+  // 各自写 config，可能起两个心跳线程并互相覆盖配置。
   var inFlight = false;
 
   async function handleLogin() {
@@ -87,10 +87,8 @@ var LoginView = (function () {
         var nickname = (userInfo && userInfo.nickname) ? userInfo.nickname : user;
         var loginTime = formatLoginTime(new Date());
 
-        // Start proxy + heartbeat BEFORE saving config, so a failure
+        // Start heartbeat BEFORE saving config, so a failure
         // doesn't leave stale token on disk.
-        var port = await API.getProxyPort();
-        if (!port) port = await API.startProxy(result.fingerprint);
         await API.startHeartbeat(url, result.fingerprint);
 
         // Now persist config after services are running
@@ -108,7 +106,7 @@ var LoginView = (function () {
 
         App.switchView('panel', {
           serverUrl: url, fingerprint: result.fingerprint,
-          port: port, token: result.token, auto: false,
+          token: result.token, auto: false,
           username: user,
           nickname: nickname,
           loginAt: loginTime

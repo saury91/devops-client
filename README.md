@@ -1,6 +1,6 @@
 # DevOps Client
 
-基于 Tauri v2 的桌面设备认证代理。客户端通过设备指纹绑定、本地 HTTP 代理和心跳保活，与配套 Web 后端协同实现“仅在当前机器可用”的安全访问。
+基于 Tauri v2 的桌面设备认证代理。客户端通过设备指纹绑定、设备证书和心跳保活，与配套 Web 后端协同实现“仅在当前机器可用”的安全访问。
 
 ## 客户端流程
 
@@ -8,8 +8,7 @@
 登录/自动登录
   → 服务端返回 session token
   → 客户端加密保存配置（serverUrl、token、loginAt 等）
-  → 启动本地 HTTP 代理（127.0.0.1 随机端口，/ping）
-  → 启动 10 秒心跳
+  → 启动 30 秒心跳
   → 进入已连接面板
 ```
 
@@ -22,13 +21,14 @@
   → 浏览器加载 Web 工作台
 ```
 
-本地 HTTP 代理仅监听 `127.0.0.1`，不对外暴露，用于让浏览器验证桌面 Agent 真实存在。
+浏览器侧不再依赖本地端口探测：心跳持续向服务端上报在场状态，Web 会话按登录来源决定是否随客户端退出而失效。
 
 心跳根据服务端返回状态执行不同动作：
 
 - `Active` / `Pending`：失败计数清零
 - `Revoked`：提示“设备已被撤销”并退出应用
-- `SESSION_INVALID` / `FINGERPRINT_MISMATCH`：立即返回登录页
+- `SESSION_INVALID`：用设备指纹静默重建会话（正常情况下用户无感）
+- `FINGERPRINT_MISMATCH`：安全事件（该会话不属于本机），不做免密重建、不再重试心跳，提示重新登录
 - 其他错误/网络异常：累计失败，达到 3 次后返回登录页
 
 ---
@@ -117,12 +117,11 @@ src-tauri/                      # Tauri Rust 后端
     ├── main.rs                 # 入口：panic hook、窗口、托盘、生命周期
     ├── lib.rs                  # 模块声明
     ├── commands.rs             # 全部 Tauri IPC 命令
-    ├── state.rs                # ProxyState, HeartbeatState
+    ├── state.rs                # HeartbeatState
     ├── config.rs               # Config 加载/保存 + 错误日志与 panic 落盘
     ├── secret.rs               # 密码/token 的系统凭据库存取
     ├── fingerprint.rs          # ED25519 + SHA-256 设备指纹
     ├── crypto.rs               # AES-256-GCM 本地加密
-    ├── proxy.rs                # Axum HTTP 本地代理（/ping）
     ├── auth.rs                 # Reqwest HTTP 客户端（登录/心跳/换 token/用户信息/证书上报）
     ├── platform.rs             # 平台相关工具
     ├── cert/                   # 设备证书：签发、安装、状态查询（按平台分文件）
@@ -160,7 +159,7 @@ src-tauri/                      # Tauri Rust 后端
 
 ### 日志
 
-`error.log` 记录配置读写失败、代理异常、凭据库访问失败，以及**所有 panic（含文件与行号）**。Windows 上没有控制台，主线程之外的 panic 不会显示在任何地方，这份日志是唯一线索。单个文件上限 1 MiB，超过后滚动为 `error.log.1`（只保留一代），避免心跳持续失败把用户目录写满。
+`error.log` 记录配置读写失败、凭据库访问失败，以及**所有 panic（含文件与行号）**。Windows 上没有控制台，主线程之外的 panic 不会显示在任何地方，这份日志是唯一线索。单个文件上限 1 MiB，超过后滚动为 `error.log.1`（只保留一代），避免心跳持续失败把用户目录写满。
 
 面板的「导出」按钮会把界面上看到的事件日志与 `error.log` 的尾部一起写入文件，排查时直接附上即可。
 
@@ -183,13 +182,10 @@ src-tauri/                      # Tauri Rust 后端
 | `change_password` | 调用 `/api/auth/change-password` |
 | `server_logout` | 调用服务端登出 |
 | `test_connection` | 探测服务端可达性与延迟 |
-| `start_proxy` | 启动本地 HTTP 代理 |
-| `stop_proxy` | 停止本地 HTTP 代理 |
-| `get_proxy_port` | 获取当前代理端口 |
 | `open_browser` | 使用系统默认浏览器打开 URL |
 | `open_dashboard` | 申请 exchange-token 并打开工作台 |
 | `get_dashboard_url` | 只构造工作台 URL，不打开浏览器 |
-| `start_heartbeat` | 启动 10 秒心跳循环 |
+| `start_heartbeat` | 启动 30 秒心跳循环 |
 | `stop_heartbeat` | 停止心跳循环 |
 | `get_cert_status` | 查询本机设备证书状态 |
 | `install_device_cert` | 签发并安装设备证书 |
@@ -256,7 +252,7 @@ CI（`.github/workflows/build.yml`）在 macOS / Ubuntu / Windows 三平台上�
 
 提交前请至少跑一次 `just ci`。`just lint` 与 CI 的 clippy 范围保持一致（都带 `--all-targets`）—— 少了它就不会检查测试代码，会变成“本地全绿、CI 报错”。
 
-Rust 侧的 HTTP 契约测试用 axum 起真实桩服务端（随机端口）并通过真实请求打过去，覆盖 URL 拼接、请求头名、JSON 字段名（camelCase）与错误码映射 —— 这些恰恰最容易写错，且在服务端只表现为一句“登录失败”。本地代理的测试同理：跨源头、禁缓存头与通知节流都经真实连接验证。
+Rust 侧的 HTTP 契约测试用 axum 起真实桩服务端（随机端口）并通过真实请求打过去，覆盖 URL 拼接、请求头名、JSON 字段名（camelCase）与错误码映射 —— 这些恰恰最容易写错，且在服务端只表现为一句“登录失败”。
 
 ---
 

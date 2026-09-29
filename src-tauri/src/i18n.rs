@@ -102,7 +102,6 @@ i18n_map! {
     "panel.autoConnected" => { en: "DEVICE RECOGNIZED", zh: "设备已识别" },
     "panel.server" => { en: "Server", zh: "服务端" },
     "panel.deviceId" => { en: "Device ID", zh: "设备 ID" },
-    "panel.localPort" => { en: "Port", zh: "端口" },
     "panel.openDashboard" => { en: "Open Dashboard", zh: "打开工作台" },
     "panel.quit" => { en: "Logout", zh: "退出登录" },
 
@@ -134,7 +133,6 @@ i18n_map! {
     "panel.deviceDisk" => { en: "Disk", zh: "磁盘" },
     "panel.noDeviceInfo" => { en: "No hardware info available", zh: "暂无硬件信息" },
     "panel.diagnostics" => { en: "Diagnostics", zh: "诊断信息" },
-    "panel.diagPort" => { en: "Proxy Port", zh: "代理端口" },
     "panel.diagLatency" => { en: "Latency", zh: "延迟" },
     "panel.diagLastHb" => { en: "Last HB", zh: "上次心跳" },
     "panel.diagFingerprint" => { en: "Fingerprint", zh: "指纹" },
