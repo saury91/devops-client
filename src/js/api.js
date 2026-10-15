@@ -53,9 +53,6 @@ var API = (function () {
     openBrowser:   function (url)    { return invoke('open_browser', { url: url }); },
     openDashboard: function (serverUrl, token) { return invoke('open_dashboard', { serverUrl, token }); },
     getDashboardUrl: function (serverUrl, token) { return invoke('get_dashboard_url', { serverUrl, token }); },
-    // 客户端内置工作台窗口：openWorkbench 实时签发票据，openWorkbenchUrl 用前端预取好的地址
-    openWorkbench:    function (serverUrl, token) { return invoke('open_workbench', { serverUrl, token }); },
-    openWorkbenchUrl: function (url) { return invoke('open_workbench_url', { url: url }); },
     startHeartbeat: function (url, fp) { return invoke('start_heartbeat', { serverUrl: url, fingerprint: fp }); },
     stopHeartbeat: function ()       { return invoke('stop_heartbeat'); },
     onRevoked:     function (cb) { return _listenOnce('device-revoked', cb); },
@@ -64,8 +61,6 @@ var API = (function () {
     onHeartbeatOk: function (cb) { return _listenOnce('heartbeat-ok', cb); },
     onHeartbeatFail: function (cb) { return _listenOnce('heartbeat-fail', cb); },
     onSessionRenewed: function (cb) { return _listenOnce('session-renewed', cb); },
-    // 工作台窗口落到登录页（会话超时，或用户在网页上主动退出登录）时后端发来的通知
-    onWorkbenchSessionEnded: function (cb) { return _listenOnce('workbench-session-ended', cb); },
     getDeviceInfo: function ()     { return invoke('get_device_info'); },
     testConnection: function (url) { return invoke('test_connection', { url: url }); },
     exportLogFile: function (content, path) { return invoke('export_log_file', { content: content, path: path }); },

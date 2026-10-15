@@ -3,6 +3,7 @@
   "login.subtitle": "Enter your credentials to continue",
   "login.username": "Username",
   "login.password": "Password",
+
   "login.signIn": "EXECUTE LOGIN",
   "login.signingIn": "AUTHENTICATING...",
   "login.quit": "Quit",
@@ -12,6 +13,7 @@
   "login.connFailed": "Connection failed",
   "login.autoLoggingIn": "Auto logging in",
   "login.autoLoginFailed": "Auto login failed",
+
   "panel.title": "DevOps Client",
   "panel.connected": "CONNECTED",
   "panel.autoConnected": "DEVICE RECOGNIZED",
@@ -31,6 +33,7 @@
   "panel.system": "System",
   "panel.logTitle": "Event Log",
   "panel.clearLog": "FLUSH",
+
   "settings.title": "Settings",
   "settings.serverUrl": "Server URL",
   "settings.language": "Language",
@@ -39,6 +42,7 @@
   "settings.save": "Save",
   "settings.saved": "Saved",
   "settings.serverChanged": "Server address changed, please sign in again",
+
   "error.serverError": "Server returned an error",
   "error.revoked": "Device has been revoked by admin.",
   "error.noServerUrl": "Please configure server URL in settings",
@@ -49,6 +53,7 @@
   "error.identityMismatch": "Device identity check failed — please sign in again",
   "error.connectionLost": "Connection to server lost",
   "error.ok": "OK",
+
   "panel.settings": "Settings",
   "panel.deviceInfo": "Device Info",
   "panel.deviceOs": "OS",
@@ -71,6 +76,7 @@
   "panel.exportLog": "Export",
   "panel.logExported": "Log saved",
   "panel.logExportFailed": "Failed to export log",
+
   "panel.changePw": "CHANGE PASSWORD",
   "panel.oldPw": "Old Password",
   "panel.newPw": "New Password",
@@ -85,14 +91,17 @@
   "panel.sessionAbnormal": "Session abnormal, please log out and log in again",
   "panel.linkCopied": "Link copied, dashboard opened",
   "panel.copyFailed": "Copy failed, please retry",
+
   "settings.testConn": "Test",
   "settings.testing": "Testing...",
   "settings.connOk": "Connected",
   "settings.connFail": "Failed",
+
   "settings.update": "App Update",
   "settings.checkUpdate": "CHECK",
   "settings.installUpdate": "INSTALL",
   "settings.currentVersion": "Current Version",
+
   "update.found": "New version available: {version}",
   "update.checking": "Checking for updates...",
   "update.upToDate": "You are on the latest version",
@@ -104,15 +113,8 @@
   "update.installing": "Installing update...",
   "update.restarting": "Restarting to finish the update...",
   "update.installFailed": "Update failed",
+
   "window.hide": "Hide",
   "window.minimize": "Minimize",
-  "window.close": "Close",
-  "settings.afterLogin": "After sign-in",
-  "settings.afterLoginPanel": "Panel",
-  "settings.afterLoginWorkbench": "Workbench",
-  "settings.openMode": "Open workbench with",
-  "settings.openInapp": "Client",
-  "settings.openBrowser": "Browser",
-  "settings.launchHintLinked": "Opening the workbench requires the client window",
-  "panel.workbenchSessionEnded": "Workbench session ended — reopen it from the panel when needed"
+  "window.close": "Close"
 }
