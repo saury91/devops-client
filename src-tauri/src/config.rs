@@ -18,6 +18,13 @@ pub struct Config {
     pub nickname: String,
     #[serde(default)]
     pub language: String,
+    /// 登录成功（含指纹免密续登）之后的落点："panel"（默认，停在状态面板）
+    /// 或 "workbench"（直接打开内置工作台窗口）
+    #[serde(default)]
+    pub after_login: String,
+    /// 打开工作台的方式："inapp"（默认，客户端内置窗口）或 "browser"（系统浏览器）
+    #[serde(default)]
+    pub open_mode: String,
 }
 
 const SUPPORTED_LANGUAGES: &[&str] = &["zh", "en"];
@@ -298,6 +305,8 @@ mod tests {
             password: "p".to_string(),
             nickname: "n".to_string(),
             language: "zh".to_string(),
+            after_login: "workbench".to_string(),
+            open_mode: "inapp".to_string(),
         };
 
         save_config_at(&config, &path).expect("save must succeed");

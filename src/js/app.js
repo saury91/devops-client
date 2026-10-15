@@ -160,6 +160,12 @@ var App = (function () {
   }
 
   async function init() {
+    // 工作台窗口落到登录页（会话超时或用户在网页上退出登录）时后端会关掉那扇窗并发这个事件；
+    // 在面板上给一条提示，避免用户以为"工作台自己消失了"
+    API.onWorkbenchSessionEnded(function () {
+      showToast(I18n.t('panel.workbenchSessionEnded'));
+    });
+
     document.documentElement.dataset.os = detectOS();
 
     // Init background animation (best-effort)
@@ -319,6 +325,8 @@ var App = (function () {
           nickname: cfg.nickname || cfg.username || '',
           loginAt: cfg.login_at || '-'
         });
+        // 指纹免密续登也算"登录完成"，同样按配置落点（见 docs/workbench-in-app.md 5.2）
+        Panel.maybeAutoOpenWorkbench();
         return;
       }
     } catch (e) {

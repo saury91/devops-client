@@ -109,6 +109,8 @@ var LoginView = (function () {
           nickname: nickname,
           loginAt: loginTime
         });
+        // 登录完成 → 按配置决定落点（停在面板，或直接打开工作台窗口）
+        Panel.maybeAutoOpenWorkbench();
         return;
       }
 

@@ -59,6 +59,18 @@ pub fn t(lang: Lang, key: &str) -> &str {
     map.get(key).copied().unwrap_or(key)
 }
 
+/// 配置里的语言码 → Lang。
+///
+/// 窗口标题这类"由 Rust 侧渲染的文案"要用**配置里的语言**（用户可能在设置里改过），
+/// 而不是系统语言；配置为空或未知时回落到系统检测。
+pub fn from_code(code: &str) -> Lang {
+    match code {
+        "en" => Lang::En,
+        "zh" => Lang::Zh,
+        _ => detect_lang(),
+    }
+}
+
 macro_rules! i18n_map {
     ($( $key:expr => { en: $en:expr, zh: $zh:expr } ),* $(,)?) => {
         fn en_map() -> HashMap<&'static str, &'static str> {
@@ -80,6 +92,7 @@ macro_rules! i18n_map {
 
 i18n_map! {
     "window.title" => { en: "DevOps", zh: "DevOps" },
+    "window.workbenchTitle" => { en: "Workbench", zh: "资源工作台" },
     "tray.tooltip" => { en: "DevOps Client", zh: "DevOps 客户端" },
     "tray.open" => { en: "Open Panel", zh: "打开面板" },
     "tray.quit" => { en: "Quit", zh: "退出" },

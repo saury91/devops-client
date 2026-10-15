@@ -680,22 +680,37 @@ var Panel = (function () {
         return;
       }
 
+      var mode = await resolveOpenMode();
+
       // 优先使用进面板时预生成的 URL，点击后几乎立即打开
       var preset = takePresetUrl();
-      if (preset) {
-        try {
-          await API.openBrowser(preset);
-          return;
-        } catch (e) {
-          console.warn('open preset url failed, fallback to live create:', e);
+
+      if (mode === 'browser') {
+        // 系统浏览器：保持既有行为
+        if (preset) {
+          try {
+            await API.openBrowser(preset);
+            return;
+          } catch (e) {
+            console.warn('open preset url failed, fallback to live create:', e);
+          }
         }
+        try {
+          await API.openDashboard(_state.serverUrl, _state.token);
+        } catch (e) {
+          console.error('openDashboard failed:', e);
+          showToast(friendlyOpenError(e));
+        }
+        return;
       }
 
-      // 回退路径：实时创建一次性 token 打开工作台
+      // 内置工作台窗口：同一个一次性票据，只是交给客户端自己的第二扇窗。
+      // 窗口已开着时后端会换掉地址后聚焦（exchange token 是一次性的，旧地址已作废）。
       try {
-        await API.openDashboard(_state.serverUrl, _state.token);
+        if (preset) await API.openWorkbenchUrl(preset);
+        else await API.openWorkbench(_state.serverUrl, _state.token);
       } catch (e) {
-        console.error('openDashboard failed:', e);
+        console.error('openWorkbench failed:', e);
         showToast(friendlyOpenError(e));
       }
     } finally {
@@ -704,6 +719,39 @@ var Panel = (function () {
       setBallOpening(ball, false);
       // 预取值已消费或已失效，立即为下一次点击重新准备
       prefetchDashboardUrl();
+    }
+  }
+
+  // 打开方式：'inapp'（内置窗口，默认）| 'browser'（系统浏览器）。
+  // 每次点击实时读配置 —— 用户可能刚在设置里改过，而设置浮层就在面板里。
+  async function resolveOpenMode() {
+    try {
+      var cfg = await API.loadConfig();
+      return (cfg && cfg.open_mode === 'browser') ? 'browser' : 'inapp';
+    } catch (e) {
+      return 'inapp';
+    }
+  }
+
+  /**
+   * 登录完成（手动登录或指纹免密续登）之后按配置落点。
+   *
+   * 由 app.js / login.js 在切到面板之后调用 —— 那里才知道"确实登录完成了"；
+   * 而**从托盘恢复显示不算登录**，所以托盘路径不调它（见 docs/workbench-in-app.md 5.2）。
+   */
+  async function maybeAutoOpenWorkbench() {
+    if (!_state || !_state.token) return;
+    var cfg = null;
+    try { cfg = await API.loadConfig(); } catch (e) { return; }
+    if (!cfg || cfg.after_login !== 'workbench') return;
+    // 配置联动保证「直接打开工作台」时打开方式一定是内置窗口，这里再兜一道
+    if (cfg.open_mode === 'browser') return;
+    try {
+      var preset = takePresetUrl();
+      if (preset) await API.openWorkbenchUrl(preset);
+      else await API.openWorkbench(_state.serverUrl, _state.token);
+    } catch (e) {
+      console.error('auto open workbench failed:', e);
     }
   }
 
@@ -805,6 +853,7 @@ var Panel = (function () {
 
   return {
     init: init, show: show, cleanup: cleanup,
-    addLog: addLog
+    addLog: addLog,
+    maybeAutoOpenWorkbench: maybeAutoOpenWorkbench
   };
 })();

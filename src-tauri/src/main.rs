@@ -48,6 +48,8 @@ fn main() {
             commands::open_browser,
             commands::open_dashboard,
             commands::get_dashboard_url,
+            commands::open_workbench,
+            commands::open_workbench_url,
             commands::start_heartbeat,
             commands::stop_heartbeat,
             commands::is_dev_build,

@@ -1099,7 +1099,11 @@ hr { border: 0; border-top: 1px solid var(--hairline-soft); margin: 0 0 var(--sp
   transform: scale(0.94) translateY(10px);
   opacity: 0;
   transition: transform var(--dur-4) var(--ease-spring),
-              opacity var(--dur-3) var(--ease-out);
+              opacity var(--dur-3) var(--ease-out);  /* 窗口最矮只有 400px（登录页），而设置项还在长 —— 放不下时让卡片自己滚动，
+     而不是把保存按钮顶出窗口外 */
+  max-height: calc(100% - 12px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .overlay.active .overlay-card { transform: none; opacity: 1; }
 
@@ -1118,9 +1122,56 @@ hr { border: 0; border-top: 1px solid var(--hairline-soft); margin: 0 0 var(--sp
 .conn-status:empty { display: none; }
 
 /* 地址输入 + 测试按钮同行：按钮钉在右侧，输入框吃剩余宽度 */
-.input-row { display: flex; align-items: center; gap: var(--sp-2); }
-.input-row .settings-input { flex: 1; min-width: 0; }
+.input-row { display: flex; align-items: center; gap: var(--sp-2); }.input-row .settings-input { flex: 1; min-width: 0; }
 .input-row .btn-ghost { flex-shrink: 0; }
+
+/* 分段选择（设置页的「登录后」「打开方式」）：
+   两个互斥选项并排，选中态用青色描边 + 淡填充 —— 与监视球、Tab 滑块同一套语言。
+   不可用的组合（见 settings.js）加 .is-disabled：置灰且不可点，而不是允许配置出坏组合。 */
+.seg-group {
+  display: flex; gap: 6px;
+  padding: 3px;
+  background: var(--fill-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+}
+.seg-btn {
+  flex: 1; min-width: 0;
+  height: 28px; padding: 0 var(--sp-2);
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  cursor: pointer;
+  transition: color var(--dur-2), background var(--dur-2), border-color var(--dur-2);
+}
+.seg-btn:hover { color: var(--text); }
+.seg-btn.is-active {
+  background: rgba(var(--ball-rgb), 0.12);
+  border-color: rgba(var(--ball-rgb), 0.45);
+  color: var(--accent);
+}
+.seg-btn.is-disabled { opacity: 0.35; cursor: not-allowed; }
+.seg-btn.is-disabled:hover { color: var(--text-3); }
+
+/* 标签在左、分段控件在右的紧凑行：设置卡片在 400px 高的登录窗口里要塞得下，
+   竖排「标签 + 控件」两行太占高度（实测加两行会把卡片撑到 461px，保存按钮被顶出窗口） */
+.form-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+.form-row > label {
+  flex-shrink: 0;
+  margin-bottom: 0;
+  font-size: var(--fs-cap);
+  color: var(--text-3);
+}
+.form-row .seg-group { flex-shrink: 1; min-width: 0; }
+.form-row .seg-btn { flex: 0 1 auto; }
 .overlay-header h2 {
   font-family: var(--font-mono);
   font-size: var(--fs-label);

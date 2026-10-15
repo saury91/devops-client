@@ -4,6 +4,9 @@ var Settings = (function () {
 
   var _visible = false;
   var _langSelect;
+  // 启动与打开：两项互相约束，值在内存里维护，保存时写回 config
+  var _afterLogin = 'panel';   // 'panel' | 'workbench'
+  var _openMode = 'inapp';     // 'inapp' | 'browser'
 
   function init() {
     document.getElementById('gear-btn').addEventListener('click', toggle);
@@ -11,6 +14,9 @@ var Settings = (function () {
     document.getElementById('settings-close').addEventListener('click', hide);
     document.getElementById('settings-save').addEventListener('click', save);
     _langSelect = document.getElementById('lang-select');
+
+    initSegGroup('seg-after-login', function (val) { _afterLogin = val; });
+    initSegGroup('seg-open-mode', function (val) { _openMode = val; });
 
     // Connection test
     var testBtn = document.getElementById('settings-test-conn');
@@ -31,12 +37,77 @@ var Settings = (function () {
     });
   }
 
+  // --- 分段选择（登录后落点 / 打开方式） ---
+
+  /**
+   * 给一个 .seg-group 绑点击：点哪项哪项生效，然后统一交给 syncLaunchOptions() 收口。
+   *
+   * @param id       容器 id
+   * @param onChange 选中值变化时的回调
+   */
+  function initSegGroup(id, onChange) {
+    var group = document.getElementById(id);
+    if (!group) return;
+    group.addEventListener('click', function (e) {
+      var btn = e.target.closest('.seg-btn');
+      if (!btn || btn.classList.contains('is-disabled')) return;
+      onChange(btn.dataset.val);
+      syncLaunchOptions();
+    });
+  }
+
+  /**
+   * 两项互斥约束 + 渲染选中态。
+   *
+   * 规则（见 docs/workbench-in-app.md 5.1）：
+   *   · 登录后 = 直接打开工作台 → 打开方式必须内置窗口，否则登录后会被甩到外部浏览器
+   *   · 打开方式 = 系统浏览器   → 登录后必须停在状态面板，同上
+   * 不成立的组合直接置灰，而不是允许配出来再解释。
+   */
+  function syncLaunchOptions() {
+    var afterLogin = document.getElementById('seg-after-login');
+    var openMode = document.getElementById('seg-open-mode');
+
+    function paint(group, current) {
+      if (!group) return;
+      Array.prototype.forEach.call(group.querySelectorAll('.seg-btn'), function (btn) {
+        var val = btn.dataset.val;
+        btn.classList.toggle('is-active', val === current);
+        // 该选项是否被另一项锁死
+        var locked = (group === afterLogin)
+          ? (val === 'workbench' && _openMode === 'browser')
+          : (val === 'browser' && _afterLogin === 'workbench');
+        btn.classList.toggle('is-disabled', locked);
+      });
+    }
+
+    paint(afterLogin, _afterLogin);
+    paint(openMode, _openMode);
+
+    var hint = document.getElementById('seg-hint');
+    if (hint) {
+      hint.textContent = (_afterLogin === 'workbench' || _openMode === 'browser')
+        ? I18n.t('settings.launchHintLinked') : '';
+    }
+  }
+
   function show() {
     _visible = true;
 
     var urlInput = document.getElementById('settings-url');
     API.loadConfig().then(function (cfg) {
       urlInput.value = (cfg && cfg.server_url) ? cfg.server_url : '';
+      // 落点配置读进来：空值按默认（停在面板 / 内置窗口）
+      _afterLogin = (cfg && cfg.after_login === 'workbench') ? 'workbench' : 'panel';
+      _openMode = (cfg && cfg.open_mode === 'browser') ? 'browser' : 'inapp';
+      syncLaunchOptions();
+
+      // 未登录时整组隐藏：还没有面板可落，"登录后去哪"无从谈起。
+      // 顺带解决一个硬约束 —— 登录页窗口只有约 400px 高，多这两行会把保存按钮顶出窗口
+      var launchGroup = document.getElementById('launch-group');
+      if (launchGroup) {
+        launchGroup.style.display = (cfg && cfg.token) ? '' : 'none';
+      }
     });
 
     _langSelect.value = I18n.lang();
@@ -113,12 +184,16 @@ var Settings = (function () {
         var cleared = await API.loadConfig() || {};
         cleared.server_url = url;
         cleared.language = lang;
+        cleared.after_login = _afterLogin;
+        cleared.open_mode = _openMode;
         await API.saveConfig(cleared);
         return;
       }
 
       cfg.server_url = url;
       cfg.language = lang;
+      cfg.after_login = _afterLogin;
+      cfg.open_mode = _openMode;
       await API.saveConfig(cfg);
       hide();
 

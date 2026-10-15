@@ -278,6 +278,14 @@ killall Finder
   - macOS 的标题栏是**两列网格**（自绘灯组 `display:none` 后子元素少一个，沿用三列网格会整体前移一格，标题撞红绿灯区）；`padding-left: 76px` 预留原生灯位，标题左对齐
   - 窗口固定尺寸，macOS 的绿色缩放按钮（zoom）被禁用后会渲染成黑色圆点，`main.rs` 建窗后已用 `standardWindowButton(NSWindowButton::ZoomButton) + setHidden(true)` 隐藏（公开 AppKit API）；自绘交通灯（`.win-actions`）里就**不要**再加关闭/最小化之外的东西
 - **窗口是透明的（仅 Windows）**。窗口可见形状由 `#app-shell` 决定（圆角 + 底色 `--bg`），因此 body 必须 `background: transparent`，**任何一处给 html/body 上底色都会让圆角失效**（macOS 例外，见上：macOS 的圆角由系统给，需要不透明底色）
+- **工作台是客户端内的第二扇窗**（`commands.rs` 的 `open_workbench` / `open_workbench_url`，设计见 `docs/workbench-in-app.md`）：
+  - 加载的是**远端页面，不是我们的代码**，所以**绝不授予 IPC 权限**（`capabilities/default.json` 只挂 `main`）；创建、导航、落点、关闭全部由 Rust 侧驱动
+  - 服务端下了 `X-Frame-Options: DENY` + CSP `frame-ancestors 'none'`，**iframe 内嵌走不通**，只能顶层导航
+  - 单例：窗口已存在时必须 `navigate` 换地址再聚焦 —— exchange token 是一次性的，旧地址早作废，只 focus 会让用户看到登录页
+  - 防白闪三件套：`visible(false)` 创建 + 窗口底色 `#0B1120` + `on_page_load(Finished)` 才 show（3s 兜底）。注意 `on_page_load` **只在 builder 上**，已建好的窗口没有这个方法
+  - macOS 用 `Overlay` + `initialization_script` 注入 `.navbar{padding-left:78px}` 让出红绿灯位（**embed 契约前的临时手段**，网页侧支持 `?embed=client` 后删掉）；Windows/Linux 用原生边框
+  - 落到 `/login` 或 `/workbench-closed` 时关窗并 emit `workbench-session-ended`；**不静默续期**（用户可能是在网页上主动退出登录，自动登回去会让他退不掉）
+- **启动落点有配置**（`config.after_login` = `panel`/`workbench`，`config.open_mode` = `inapp`/`browser`）：两项互相约束，设置页不成立的组合直接置灰（`settings.js` 的 `syncLaunchOptions()`）。触发规则：手输登录 ✓、免密续登 ✓、**从托盘恢复显示 ✗**、将来若加开机自启 ✗（自启用例见文档 5.2）。未登录时这组设置整组隐藏 —— 登录页窗口只有约 400px 高，多两行会把保存按钮顶出窗口
 - **登录页的 `.terminal-shell` 必须 `height: auto`，不能 `height: 100%`**。登录页窗口高度是「贴合内容」算出来的（`app.js` 的 `measureLoginHeight`）：shell 一旦撑满窗口，量到的就是当前窗口高度 —— 自我引用，于是登录页被面板的 600 撑过一次后再也回不去（登出后窗口仍是面板高度、内容顶在上面、下方空一大片，见 2026-10-15 反馈）。配套：`.view#login-view` 用 `align-items: flex-start`，且测量只能取 `shell.offsetHeight`（`getBoundingClientRect()` 会被 `.view.active` 入场动画的 transform 缩放）
 - 圆角半径走 `--radius-window` 令牌。内层 `.terminal-shell` 必须复用同一个变量——两者是同心关系，半径不一致时内描边会在转角被外壳裁断
 - 窗口尺寸常量集中在 `app.js` 顶部（`WINDOW_W` / `PANEL_H` / `SPLASH_H` / `LOGIN_MIN_H`）。面板高度按最矮的 Windows 场景取上限：1366×768 机器在 125% 缩放下逻辑高度约 614，再高会被屏幕切掉底部

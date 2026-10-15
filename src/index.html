@@ -221,6 +221,27 @@
             <option value="en" data-i18n="settings.langEn">English</option>
           </select>
         </div>
+        <!-- 启动与打开：这两项互相约束，见 settings.js 的 syncLaunchOptions()。
+             刻意用「标签 + 控件同行」而不是上下两行：设置卡片在登录页窗口（约 400px 高）里
+             必须放得下，多两行竖排会把保存按钮顶出窗口。 -->
+        <!-- 登录前这两项没有意义（还没有面板可落），Settings.show() 会在未登录时整组隐藏 -->
+        <div id="launch-group">
+        <div class="form-row">
+          <label data-i18n="settings.afterLogin">After sign-in</label>
+          <div class="seg-group" id="seg-after-login">
+            <button type="button" class="seg-btn" data-val="panel" data-i18n="settings.afterLoginPanel">Status panel</button>
+            <button type="button" class="seg-btn" data-val="workbench" data-i18n="settings.afterLoginWorkbench">Open workbench</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <label data-i18n="settings.openMode">Open workbench with</label>
+          <div class="seg-group" id="seg-open-mode">
+            <button type="button" class="seg-btn" data-val="inapp" data-i18n="settings.openInapp">Built-in window</button>
+            <button type="button" class="seg-btn" data-val="browser" data-i18n="settings.openBrowser">System browser</button>
+          </div>
+        </div>
+        <div class="row-inline"><span id="seg-hint" class="conn-status"></span></div>
+        </div>
         <div class="form-group">
           <label data-i18n="settings.update">App Update</label>
           <div class="row-inline">
