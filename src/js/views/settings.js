@@ -123,12 +123,14 @@ var Settings = (function () {
       hide();
 
       var btn = document.getElementById('settings-save');
-      var orig = btn.querySelector('.btn-text').textContent;
-      btn.querySelector('.btn-text').textContent = I18n.t('settings.saved');
-      btn.style.color = '#00E5FF';
+      var label = btn.querySelector('.btn-text');
+      var orig = label.textContent;
+      label.textContent = I18n.t('settings.saved');
+      // 主按钮现在是青色实底，靠改文字颜色反馈会直接糊在底色上，改用视觉类
+      btn.classList.add('is-done');
       setTimeout(function () {
-        btn.querySelector('.btn-text').textContent = orig;
-        btn.style.color = '';
+        label.textContent = orig;
+        btn.classList.remove('is-done');
       }, 1500);
     } catch (e) {
       console.error('settings save failed:', e);

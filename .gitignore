@@ -14,6 +14,9 @@ dist/
 # Claude Code — 本机个人权限配置（含本机绝对路径），不入库
 .claude/settings.local.json
 
+# WorkBuddy — 本机 agent 记忆与工作状态（含本机路径），不入库
+.workbuddy/
+
 # OS
 .DS_Store
 Thumbs.db

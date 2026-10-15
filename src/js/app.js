@@ -6,24 +6,42 @@ var App = (function () {
   var _isDev = false;      // 是否为本地调试构建（tauri dev）
   var _revealed = false;   // 主窗口是否已显示过（visible:false 启动，首屏就绪后只显示一次）
 
+  // 窗口尺寸（逻辑像素）。集中在一处，方便和 styles.css 的排版一起调。
+  // PANEL_H 取 600 而不是更长：1366×768 的 Windows 机器在 125% 缩放下逻辑高度只有约 614，
+  // 再高窗口就会被屏幕裁掉底部。
+  var WINDOW_W = 360;
+  var PANEL_H = 600;
+  var SPLASH_H = 320;
+  var LOGIN_MIN_H = 340;
+
+  // 提示气泡：样式与动效都在 styles.css 的 .toast 里，这里只负责挂载与生命周期
   function showToast(message, type) {
+    var host = document.getElementById('app-shell') || document.body;
     var container = document.getElementById('toast-container');
     if (!container) {
       container = document.createElement('div');
       container.id = 'toast-container';
-      container.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none;';
-      document.body.appendChild(container);
+      host.appendChild(container);
     }
     var el = document.createElement('div');
-    var color = type === 'error' ? '#FF5E5B' : '#00E5FF';
-    el.style.cssText = 'padding:8px 14px;border-radius:6px;background:rgba(15,27,46,0.95);border:1px solid ' + color + ';color:' + color + ';font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,0.4);pointer-events:auto;opacity:0;transition:opacity 0.2s;';
+    el.className = 'toast is-' + (type === 'error' ? 'error' : type === 'success' ? 'success' : 'info');
     el.textContent = message;
     container.appendChild(el);
-    requestAnimationFrame(function () { el.style.opacity = '1'; });
+    // 下一帧再加 .show：否则"初始态 + 终态"落在同一帧里，过渡不会播放
+    requestAnimationFrame(function () { el.classList.add('show'); });
     setTimeout(function () {
-      el.style.opacity = '0';
-      setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 200);
-    }, 3500);
+      el.classList.remove('show');
+      setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 420);
+    }, 3200);
+  }
+
+  // 给 css 一个平台钩子：Windows 的系统圆角是 8px，macOS 是 10~12px
+  function detectOS() {
+    var ua = navigator.userAgent || '';
+    if (/Windows/i.test(ua)) return 'windows';
+    if (/Mac OS X|Macintosh/i.test(ua)) return 'macos';
+    if (/Linux/i.test(ua)) return 'linux';
+    return 'unknown';
   }
 
   // ---- 更新检查 / 安装 ----
@@ -142,6 +160,8 @@ var App = (function () {
   }
 
   async function init() {
+    document.documentElement.dataset.os = detectOS();
+
     // Init background animation (best-effort)
     try { Background.init(); } catch (_) {}
 
@@ -328,7 +348,7 @@ var App = (function () {
     }
   }
 
-  var LOGIN_MIN_HEIGHT = 320;  // 登录页窗口基准高度，内容放不下时按实际内容撑高
+  var LOGIN_MIN_HEIGHT = LOGIN_MIN_H;  // 登录页窗口基准高度，内容放不下时按实际内容撑高
 
   // 调试构建的标记：标题栏徽标 + 窗口标题前缀。构建类型只有 Rust 侧能判定
   // （cfg!(debug_assertions)），前端拿不到，所以启动时问一次后端。
@@ -375,7 +395,7 @@ var App = (function () {
     // 等布局完成，否则量到的是上一帧的尺寸
     requestAnimationFrame(function () {
       try {
-        API.resizeWindow(360, measureLoginHeight()).then(done, done);
+        API.resizeWindow(WINDOW_W, measureLoginHeight()).then(done, done);
       } catch (_) { done(); }
     });
   }
@@ -428,7 +448,7 @@ var App = (function () {
       panelView.classList.add('active');
       if (gearBtn) gearBtn.style.display = 'none';
       // 尺寸定下来再放窗口出来，否则首帧会以创建时的尺寸闪一下
-      API.resizeWindow(360, 624).then(revealWindow, revealWindow);
+      API.resizeWindow(WINDOW_W, PANEL_H).then(revealWindow, revealWindow);
       Background.stop();
       Panel.show(state);
     } else if (name === 'auto-login') {
@@ -438,7 +458,7 @@ var App = (function () {
       html.classList.add('auto-login-active');
       autoLoginView.classList.add('active');
       if (gearBtn) gearBtn.style.display = 'none';
-      API.resizeWindow(360, 320).then(revealWindow, revealWindow);
+      API.resizeWindow(WINDOW_W, SPLASH_H).then(revealWindow, revealWindow);
       Background.stop();
     } else if (name === 'login') {
       panelView.classList.remove('active');
@@ -544,7 +564,8 @@ var App = (function () {
     quitApp: quitApp,
     invalidateSession: invalidateSession,
     checkUpdate: checkUpdate,
-    installUpdate: installUpdate
+    installUpdate: installUpdate,
+    toast: showToast
   };
 })();
 

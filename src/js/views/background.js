@@ -7,12 +7,16 @@ var Background = (function () {
   var circuits = [];
   var pulses = [];
   var animId;
+  var running = false;
   var PARTICLE_COUNT = 60;
 
   function init() {
+    if (running) return;
     canvas = document.getElementById('bg-canvas');
     if (!canvas) return;
     ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    running = true;
     resize();
     window.addEventListener('resize', resize);
 
@@ -21,9 +25,17 @@ var Background = (function () {
     loop();
   }
 
+  // 与 wave.js 同理：按 devicePixelRatio 放大后备缓冲区，绘制仍用 CSS 像素坐标。
+  // 否则在 Windows 125%/150% 缩放下整层粒子都是虚的。
   function resize() {
-    w = canvas.width = window.innerWidth;
-    h = canvas.height = window.innerHeight;
+    var dpr = Math.min(window.devicePixelRatio || 1, 3);
+    w = window.innerWidth;
+    h = window.innerHeight;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    if (ctx.setTransform) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
   // ---- Particles ----
@@ -154,6 +166,7 @@ var Background = (function () {
 
   // ---- Main Loop ----
   function loop() {
+    if (!running) return;
     ctx.clearRect(0, 0, w, h);
 
     // Grid lines (static, subtle)
@@ -176,11 +189,13 @@ var Background = (function () {
   }
 
   function stop() {
+    running = false;
     if (animId) cancelAnimationFrame(animId);
     animId = null;
     particles.length = 0;
     circuits.length = 0;
     pulses.length = 0;
+    window.removeEventListener('resize', resize);
   }
 
   return { init: init, stop: stop };

@@ -219,6 +219,38 @@ let msg = i18n::t(lang, "login.failed");
 - macOS 本地构建：`just build`（ARM64）、`just build-mac-x64`（x64）。
 - Windows / Linux 构建需在对应平台（或 CI）运行。
 
+### 图标资产
+
+`src-tauri/icons/` 下所有 PNG/ICNS/ICO **都是生成物，不要手改**。唯一源文件是
+`src-tauri/icons/app-icon.svg` 与 `tray-template.svg`，由 `scripts/gen-icons.py` 生成：
+
+```bash
+just icons          # = python3 scripts/gen-icons.py
+```
+
+脚本负责：写 SVG 与 `icon-manifest.json` → 调 `tauri icon` 栅格化全平台图标 → 单独渲染托盘 PNG。
+
+几条必须知道的约束：
+
+- **标记语义**：云（数据云 / 云管平台）+ 环绕轨道环 + 掠过的光带 + 一串下落的 `0/1`
+  （上下行数据流）。改图时不要丢掉这个语义组合
+- **别做"云 + 竖直等长线条"**：那是"下雨"图标，语义会跑偏。数据位必须与云体分离、有明暗渐变
+- **`0/1` 画成矢量字形、不依赖字体**：resvg 栅格化时找不到字体会退化成方块；且必须**保持直立**，
+  顺着环的切线旋转会让环底部的数字上下颠倒
+- **数据位与光带并行、不相交**：压在光带上会被切断，两层信息互相干扰
+- **云体暗部不能压到背景明度**：曾出现轮廓多处对比差 < 10（右侧穹顶只有 1.2），Dock 里整朵云糊成一片。
+  现在靠两件事保证剪影：① 云体渐变暗部不深于 `#25405F`；② `cloud_edge()` 先把云体并集外扩
+  `CLOUD_EDGE` px 铺一层淡蓝白，再叠正常云体 → 外缘留一圈极淡边光。改云体颜色/尺寸后
+  要重新量一遍轮廓对比（内侧点 vs 外侧 40px 的背景，亮度差应 > 30）
+- **`tauri icon` 不加任何圆角遮罩**（纯栅格化），Apple 的圆角方底必须画进源图。脚本用超椭圆
+  （n=5）拟合 Apple 连续圆角，主体 824×824 居中于 1024 画布（Apple 图标网格），Windows/Linux 共用这套几何
+- **图标里不放文字**（除 `0/1` 这种图形化数据位）：16px 下文字必然糊成一团
+- **托盘图标是 macOS 模板图**（`tray-template.png`：纯黑 + alpha，44px = 22pt@2x），配合 `main.rs` 的
+  `icon_as_template(true)` 由系统按明暗主题自动着色。**不要改回硬编码白色**——浅色菜单栏下白色图标会直接消失。
+  托盘只保留**云体剪影**：菜单栏图标 16~22pt，环会缩成发丝、`0/1` 会变成脏点
+- iOS 图标不允许透明（App Store 会拒），`icon-manifest.json` 的 `bg_color` 负责兜底品牌深色底
+- 改了图标后如果 macOS 仍显示旧图，清一次图标缓存（见下）
+
 ### macOS 图标缓存
 
 替换 `src-tauri/icons/` 后若 Dock/启动台仍显示旧图标：
@@ -238,7 +270,15 @@ killall Finder
 - 服务器地址由用户手动输入，加密缓存于 `~/.devops-client/config.json`
 - 关闭窗口 = 隐藏到托盘，只有托盘菜单"退出"才真正退出
 - 主窗口是 `visible: false`，由前端把视图、语言、尺寸都就绪后调用 `show_main_window` 显示（`app.js` 的 `revealWindow`），避免出现 webview 未绘制时的纯色空窗；`app.js` 在 `DOMContentLoaded` 里留有兜底定时器，即使启动流程出异常窗口也不会永远不显示
-- `tauri.conf.json` 的 `backgroundColor` 仍应与 `styles.css` 的 `--bg`（`#0B1120`）一致；窗口隐藏期间兜底显示与缩放过程仍会短暂露出底色，改主题色时两处要同步
+- **窗口按平台在 Rust 里创建**（`tauri.conf.json` 的 `windows` 是空数组，`main.rs` setup 里分叉），因为窗口形态只能在创建时决定（`transparent` 没有运行时 setter）：
+  - **macOS 走 App Store 合规路径**：`decorations(true)` + `TitleBarStyle::Overlay` + 原生标题置空。圆角、阴影、红绿灯全是系统公开 API 给的，**Cargo.toml 不要加 `macos-private-api`**（private API 会上不了 App Store）。Overlay 下系统仍会居中绘制原生标题文字，跟前端自绘标题叠成重影，所以标题必须传空串
+  - **Windows 走透明窗口**：`decorations(false)` + `transparent(true)` + `shadow(false)`，圆角由 CSS 画。`shadow` 不能开——DWM 阴影跟矩形框走且附赠 1px 白边
+  - 前端用 `html[data-os]` 配合：macOS 下 `--radius-window: 0`、隐藏自绘交通灯和 `#app-shell::after` 贴边描边；Windows 保留这三样
+  - macOS 的标题栏是**两列网格**（自绘灯组 `display:none` 后子元素少一个，沿用三列网格会整体前移一格，标题撞红绿灯区）；`padding-left: 76px` 预留原生灯位，标题左对齐
+  - 窗口固定尺寸，macOS 的绿色缩放按钮（zoom）被禁用后会渲染成黑色圆点，`main.rs` 建窗后已用 `standardWindowButton(NSWindowButton::ZoomButton) + setHidden(true)` 隐藏（公开 AppKit API）；自绘交通灯（`.win-actions`）里就**不要**再加关闭/最小化之外的东西
+- **窗口是透明的（仅 Windows）**。窗口可见形状由 `#app-shell` 决定（圆角 + 底色 `--bg`），因此 body 必须 `background: transparent`，**任何一处给 html/body 上底色都会让圆角失效**
+- 圆角半径走 `--radius-window` 令牌。内层 `.terminal-shell` 必须复用同一个变量——两者是同心关系，半径不一致时内描边会在转角被外壳裁断
+- 窗口尺寸常量集中在 `app.js` 顶部（`WINDOW_W` / `PANEL_H` / `SPLASH_H` / `LOGIN_MIN_H`）。面板高度按最矮的 Windows 场景取上限：1366×768 机器在 125% 缩放下逻辑高度约 614，再高会被屏幕切掉底部
 - 前端无打包工具，JS 通过全局变量（`API` / `I18n` / `App` / `LoginView` / `Panel` / `Wave` / `Background` / `AvatarUtil`）通信
 - 心跳必须在登录成功后启动，登出/连接丢失时务必停止，避免无效请求
 - 退出前调用 `/api/auth/device-offline` 通知服务端下线；客户端崩溃/断网时由心跳中断（在场标记超时）兜底

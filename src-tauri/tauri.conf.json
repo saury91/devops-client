@@ -9,20 +9,7 @@
     "beforeBuildCommand": ""
   },
   "app": {
-    "windows": [
-      {
-        "title": "DevOps",
-        "width": 360,
-        "height": 320,
-        "resizable": false,
-        "visible": false,
-        "center": true,
-        "decorations": false,
-        "transparent": false,
-        "shadow": false,
-        "backgroundColor": "#0B1120"
-      }
-    ],
+    "windows": [],
     "withGlobalTauri": true,
     "security": {
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"

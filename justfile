@@ -59,3 +59,8 @@ verify: check build
 # Open the built app
 run:
     open src-tauri/target/aarch64-apple-darwin/release/bundle/macos/DevOps\ Client.app
+
+# Regenerate app + tray icons for every platform from scripts/gen-icons.py
+# (edit the SVG/geometry there instead of touching the PNGs by hand)
+icons:
+    python3 scripts/gen-icons.py

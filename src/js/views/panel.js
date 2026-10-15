@@ -25,10 +25,19 @@ var Panel = (function () {
   var _deviceInfo = null;
   var _avatarClicks = 0;
   var _avatarClickTimer = 0;
+  var _pressRaf = 0;
   var MAX_LOGS = 1000;
+  // 进度环周长：2πr，r=46 与 index.html 里 .press-ring circle 的 r 一致
+  var PRESS_RING_LEN = 289;
 
   function init() {
     initTabs();
+    // 窗口宽度固定，但语言/字号变化会改 tab 宽度，跟着重算滑块位置
+    window.addEventListener('resize', function () {
+      var active = document.querySelector('.panel-tab.active');
+      if (active) moveTabIndicator(active);
+    });
+    initEscapeClose();
   }
 
   function initTabs() {
@@ -38,12 +47,38 @@ var Panel = (function () {
         var target = tab.getAttribute('data-tab');
         tabs.forEach(function (t) { t.classList.remove('active'); });
         tab.classList.add('active');
+        moveTabIndicator(tab);
         document.querySelectorAll('.panel-tab-content').forEach(function (c) {
           c.classList.toggle('active', c.id === 'tab-' + target);
         });
         if (target === 'wave') Wave.resize();
       });
     });
+  }
+
+  // 分段控件滑块：宽高由实测得出，动画交给 CSS 的 transition
+  function moveTabIndicator(tab) {
+    var bar = document.querySelector('.panel-tabs .tab-indicator');
+    if (!bar || !tab) return;
+    var w = tab.offsetWidth;
+    if (!w) return;   // 面板还不可见时量不到尺寸，等真正显示时再调
+    bar.style.width = w + 'px';
+    bar.style.transform = 'translateX(' + tab.offsetLeft + 'px)';
+  }
+
+  // Esc 关闭当前打开的弹窗（设置页自己的 Esc 在 settings.js 里）
+  function initEscapeClose() {
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      if (isOverlayActive('device-info-overlay')) { hideDeviceInfoModal(); return; }
+      if (isOverlayActive('change-pw-overlay')) { hideChangePw(); return; }
+      if (isOverlayActive('diag-overlay')) { hideDiagModal(); }
+    });
+  }
+
+  function isOverlayActive(id) {
+    var el = document.getElementById(id);
+    return !!(el && el.classList.contains('active'));
   }
 
   async function show(state) {
@@ -106,6 +141,13 @@ var Panel = (function () {
     // Init wave + heartbeat callbacks (adds HB entries as they fire)
     Wave.init();
 
+    // 滑块要等面板真正可见才能量到尺寸（display:none 时 offsetWidth 恒为 0）
+    requestAnimationFrame(function () {
+      setBallStatus(true);
+      var activeTab = document.querySelector('.panel-tab.active');
+      moveTabIndicator(activeTab);
+    });
+
     // 提前换取 exchange URL：把“点击 → 浏览器打开”的一次网络往返提前到进面板时，
     // 点击时直接调 open_browser，消除点击后长时间无响应导致的重复点击
     prefetchDashboardUrl();
@@ -138,11 +180,20 @@ var Panel = (function () {
   }
 
   function showToast(msg) {
+    // 统一走 App 的气泡（同一套玻璃样式与出入场动效），panel 不再自己拼 DOM
+    if (window.App && App.toast) { App.toast(msg, 'info'); return; }
     var el = document.createElement('div');
-    el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;padding:6px 12px;border-radius:4px;background:rgba(0,229,255,0.12);border:1px solid var(--accent);color:var(--accent);font-size:11px;pointer-events:none;';
+    el.className = 'toast is-info';
     el.textContent = msg;
-    document.body.appendChild(el);
-    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 1500);
+    (document.getElementById('toast-container') || document.body).appendChild(el);
+    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 1600);
+  }
+
+  // 心跳结果直接反映在球体颜色上：失败转琥珀，比只在日志里留一行更容易看见
+  function setBallStatus(ok) {
+    var ball = document.getElementById('monitor-ball');
+    if (!ball) return;
+    ball.classList.toggle('status-fail', !ok);
   }
 
   async function refreshUserInfo() {
@@ -334,7 +385,10 @@ var Panel = (function () {
   }
 
   function addLog(type, ok) {
-    if (type === 'HB') _lastHeartbeatTime = Date.now();
+    if (type === 'HB') {
+      _lastHeartbeatTime = Date.now();
+      setBallStatus(ok);
+    }
     _lastEvent = type + ' ' + (ok ? 'ok' : 'fail');
     addLogEntry(type, ok ? 'ok' : 'fail');
     renderLogs();
@@ -425,6 +479,8 @@ var Panel = (function () {
     }
     _ballClickHandler = null;
     if (_pressTimer) { clearTimeout(_pressTimer); _pressTimer = 0; }
+    stopPressRing();
+    setBallStatus(true);
     _longPressed = false;
     _pressActive = false;
     clearPreset();
@@ -460,6 +516,31 @@ var Panel = (function () {
     if (hitArea.style.cursor !== want) hitArea.style.cursor = want;
   }
 
+  // ---- 长按进度环 ----
+  // 长按 1.5s 才能复制链接，没有反馈的话用户根本不知道自己在触发什么；
+  // 环随手势走满一圈，走满时 .long-press-armed 再把球体点亮。
+  function startPressRing() {
+    stopPressRing();
+    var ball = document.getElementById('monitor-ball');
+    var circle = document.querySelector('#monitor-ball .press-ring circle');
+    if (ball) ball.classList.add('pressing');
+    var t0 = Date.now();
+    (function tick() {
+      if (!_pressActive) return;
+      var p = Math.min(1, (Date.now() - t0) / LONG_PRESS_MS);
+      if (circle) circle.style.strokeDashoffset = String(PRESS_RING_LEN * (1 - p));
+      _pressRaf = requestAnimationFrame(tick);
+    })();
+  }
+
+  function stopPressRing() {
+    if (_pressRaf) { cancelAnimationFrame(_pressRaf); _pressRaf = 0; }
+    var ball = document.getElementById('monitor-ball');
+    if (ball) ball.classList.remove('pressing');
+    var circle = document.querySelector('#monitor-ball .press-ring circle');
+    if (circle) circle.style.strokeDashoffset = String(PRESS_RING_LEN);
+  }
+
   function onBallPressStart(e) {
     // 只有从热区内按下才开始蓄力，避免在 wrap 空白处按下误触发长按复制
     if (!isInHitArea(e)) return;
@@ -469,6 +550,7 @@ var Panel = (function () {
     if (_pressTimer) { clearTimeout(_pressTimer); _pressTimer = 0; }
     var ball = document.getElementById('monitor-ball');
     if (ball) ball.classList.remove('long-press-armed');
+    startPressRing();
     _pressTimer = setTimeout(function () {
       _pressTimer = 0;
       _longPressed = true;
@@ -481,6 +563,7 @@ var Panel = (function () {
     if (!_pressActive) return;
     _pressActive = false;
     if (_pressTimer) { clearTimeout(_pressTimer); _pressTimer = 0; }
+    stopPressRing();
     var ball = document.getElementById('monitor-ball');
     if (ball) ball.classList.remove('long-press-armed');
     // 松开时若已在热区外视为取消，避免拖出去后仍触发复制；
@@ -495,6 +578,7 @@ var Panel = (function () {
     _pressActive = false;
     if (_pressTimer) { clearTimeout(_pressTimer); _pressTimer = 0; }
     _longPressed = false;
+    stopPressRing();
     var ball = document.getElementById('monitor-ball');
     if (ball) ball.classList.remove('long-press-armed');
   }

@@ -9,6 +9,8 @@ license = "MIT"
 rust-version = "1.82"
 
 [dependencies]
+# 不要加 macos-private-api：那套私有 API 会让 macOS 版上不了 App Store。
+# macOS 的圆角/阴影改用系统窗口边框实现（见 src/main.rs 的建窗分支）。
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-process = "2"
@@ -29,11 +31,12 @@ rand = "0.8"
 dirs = "5"
 hostname = "0.4"
 
-# 只有 macOS 需要额外 feature，因此单独声明一条 target 依赖。
+# 只有 macOS 需要额外依赖，因此单独声明 target 段。
 [target.'cfg(target_os = "macos")'.dependencies]
-# `macos-private-api` 让窗口支持透明背景。与上面 [dependencies] 里的 tauri 是同一个包，
-# cargo 会把两处的 feature 取并集（tray-icon + image-png + macos-private-api）。
-tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
+# 隐藏固定尺寸窗口的绿色缩放按钮用（standardWindowButton + setHidden）。
+# objc2-app-kit 已在依赖树里（tao 依赖它），版本对齐避免重复编译。
+# 全部是公开 AppKit API，不影响 App Store 上架。
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSButton", "NSView", "NSResponder"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
