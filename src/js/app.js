@@ -375,17 +375,15 @@ var App = (function () {
     API.showWindow().catch(function () {});
   }
 
-  // 登录页内容高度 = 标题栏 + 正文 + shell 上下边框。量各部件而不是 shell 自身，
-  // 因为 shell 是 height:100%，量出来恒等于窗口高度，反映不了内容有没有溢出。
+  // 登录页内容高度 = shell 的布局高度。
+  // 量 shell 而不是 .term-body：body 带 flex: 1，窗口多高它就多高，量出来恒等于当前
+  // 窗口高度 —— 自我引用，会让「贴合内容」退化成「保持原尺寸」（登出后窗口留在面板的
+  // 600 高就是这么来的）。shell 在 CSS 里是 height: auto，offsetHeight 就是内容高度，
+  // 且 offsetHeight 不受 .view.active 入场动画的 transform 影响（getBoundingClientRect 会）。
   function measureLoginHeight() {
     var shell = document.querySelector('#login-view .terminal-shell');
     if (!shell) return LOGIN_MIN_HEIGHT;
-    var titlebar = shell.querySelector('.term-titlebar');
-    var body = shell.querySelector('.term-body');
-    // 上下边框高度与窗口高度无关，由 offset/client 之差直接得到，免得写死数值
-    var borderY = shell.offsetHeight - shell.clientHeight;
-    var h = (titlebar ? titlebar.offsetHeight : 0) + (body ? body.offsetHeight : 0) + borderY;
-    return Math.max(LOGIN_MIN_HEIGHT, Math.ceil(h));
+    return Math.max(LOGIN_MIN_HEIGHT, shell.offsetHeight);
   }
 
   // 登录页窗口高度贴合内容：出错时下方会多一行提示，固定 320 会把它裁掉。

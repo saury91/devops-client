@@ -273,10 +273,12 @@ killall Finder
 - **窗口按平台在 Rust 里创建**（`tauri.conf.json` 的 `windows` 是空数组，`main.rs` setup 里分叉），因为窗口形态只能在创建时决定（`transparent` 没有运行时 setter）：
   - **macOS 走 App Store 合规路径**：`decorations(true)` + `TitleBarStyle::Overlay` + 原生标题置空。圆角、阴影、红绿灯全是系统公开 API 给的，**Cargo.toml 不要加 `macos-private-api`**（private API 会上不了 App Store）。Overlay 下系统仍会居中绘制原生标题文字，跟前端自绘标题叠成重影，所以标题必须传空串
   - **Windows 走透明窗口**：`decorations(false)` + `transparent(true)` + `shadow(false)`，圆角由 CSS 画。`shadow` 不能开——DWM 阴影跟矩形框走且附赠 1px 白边
-  - 前端用 `html[data-os]` 配合：macOS 下 `--radius-window: 0`、隐藏自绘交通灯和 `#app-shell::after` 贴边描边；Windows 保留这三样
+  - 前端用 `html[data-os]` 配合：macOS 下 `--radius-window: 0`、隐藏自绘交通灯和 `#app-shell::after` 贴边描边、**并给 `html` 上不透明底色 `--bg`**；Windows 保留前两样且 html/body 保持透明（圆角靠它）
+  - macOS 必须显式设**窗口背景色**（`main.rs` 里 `set_background_color`，即 NSWindow.backgroundColor）。macOS 这条路径窗口是不透明的，改尺寸时新露出的那条边由**窗口服务器**先用窗口背景色填充，而 NSWindow 默认背景是浅色 —— 不设就会每次改尺寸底部闪一下白（登录后切面板那一下最明显，见 2026-10-15 反馈）。**只给 macOS 设**：Windows 下任何非 0 alpha 会被强制成不透明，设了圆角就没了
   - macOS 的标题栏是**两列网格**（自绘灯组 `display:none` 后子元素少一个，沿用三列网格会整体前移一格，标题撞红绿灯区）；`padding-left: 76px` 预留原生灯位，标题左对齐
   - 窗口固定尺寸，macOS 的绿色缩放按钮（zoom）被禁用后会渲染成黑色圆点，`main.rs` 建窗后已用 `standardWindowButton(NSWindowButton::ZoomButton) + setHidden(true)` 隐藏（公开 AppKit API）；自绘交通灯（`.win-actions`）里就**不要**再加关闭/最小化之外的东西
-- **窗口是透明的（仅 Windows）**。窗口可见形状由 `#app-shell` 决定（圆角 + 底色 `--bg`），因此 body 必须 `background: transparent`，**任何一处给 html/body 上底色都会让圆角失效**
+- **窗口是透明的（仅 Windows）**。窗口可见形状由 `#app-shell` 决定（圆角 + 底色 `--bg`），因此 body 必须 `background: transparent`，**任何一处给 html/body 上底色都会让圆角失效**（macOS 例外，见上：macOS 的圆角由系统给，需要不透明底色）
+- **登录页的 `.terminal-shell` 必须 `height: auto`，不能 `height: 100%`**。登录页窗口高度是「贴合内容」算出来的（`app.js` 的 `measureLoginHeight`）：shell 一旦撑满窗口，量到的就是当前窗口高度 —— 自我引用，于是登录页被面板的 600 撑过一次后再也回不去（登出后窗口仍是面板高度、内容顶在上面、下方空一大片，见 2026-10-15 反馈）。配套：`.view#login-view` 用 `align-items: flex-start`，且测量只能取 `shell.offsetHeight`（`getBoundingClientRect()` 会被 `.view.active` 入场动画的 transform 缩放）
 - 圆角半径走 `--radius-window` 令牌。内层 `.terminal-shell` 必须复用同一个变量——两者是同心关系，半径不一致时内描边会在转角被外壳裁断
 - 窗口尺寸常量集中在 `app.js` 顶部（`WINDOW_W` / `PANEL_H` / `SPLASH_H` / `LOGIN_MIN_H`）。面板高度按最矮的 Windows 场景取上限：1366×768 机器在 125% 缩放下逻辑高度约 614，再高会被屏幕切掉底部
 - 前端无打包工具，JS 通过全局变量（`API` / `I18n` / `App` / `LoginView` / `Panel` / `Wave` / `Background` / `AvatarUtil`）通信

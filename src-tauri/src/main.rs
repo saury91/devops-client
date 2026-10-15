@@ -128,6 +128,20 @@ fn main() {
                 return Err(Box::new(e));
             }
 
+            // 窗口背景色 = 界面底色 #0B1120（styles.css 的 --bg）。
+            //
+            // 为什么需要它：macOS 这条路径上窗口是不透明的（decorations + 系统圆角），
+            // 尺寸变化时新露出的那条边**先由窗口服务器用窗口背景色填充**，而 NSWindow
+            // 默认背景是浅色 —— 于是每次改尺寸，底部都会先闪一下白（登录成功后切到面板
+            // 那一下最明显）。显式设成品牌底色后，露出来的是深色，与界面无缝。
+            //
+            // 只给 macOS 设：Windows 那条路径是透明窗口，而 Windows 下任何非 0 的 alpha
+            // 都会被强制成不透明，设了圆角就没了（见 tauri 对 set_background_color 的说明）。
+            #[cfg(target_os = "macos")]
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_background_color(Some(tauri::window::Color(11, 17, 32, 255)));
+            }
+
             // 隐藏绿色缩放按钮：窗口固定尺寸（resizable:false），该按钮被系统禁用后
             // 仍渲染成一个黑色圆点悬在红绿灯组里，既不可用又难看。
             // standardWindowButton + setHidden 是公开 AppKit API，不影响上架。

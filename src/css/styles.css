@@ -273,10 +273,16 @@ html.panel-active #bg-canvas { display: none; }
 /* ------------------------------------------------------------
    5. 登录页
    ------------------------------------------------------------ */
-.view#login-view { padding: 0; }
+/* 登录页的 shell 必须按内容自适应高度（height: auto），**不能** height: 100%。
+   面板里 shell 撑满窗口是合理的，但登录页的窗口高度是「贴合内容」算出来的
+   （见 app.js 的 measureLoginHeight）：shell 一旦撑满窗口，量到的就是当前窗口高度
+   —— 自我引用。后果是登录页被面板的 600 撑过一次后就再也回不去（登出后窗口仍是
+   面板高度，内容顶在上面、下方空一大片）。
+   顶对齐（flex-start）是为了在窗口还没缩到目标高度的那一帧里，标题栏不跳到窗口垂直中央。 */
+.view#login-view { padding: 0; align-items: flex-start; }
 .view#login-view .terminal-shell {
   max-width: none;
-  width: 100%; height: 100%;
+  width: 100%; height: auto;
   border: 0; border-radius: 0;      /* 圆角与边框由 #app-shell 负责 */
   background: transparent;
 }
@@ -1303,8 +1309,11 @@ html[data-os="windows"] { --radius-window: 8px; }
 /* macOS 走系统窗口路径（Rust 侧 TitleBarStyle::Overlay）：圆角、阴影、红绿灯都是原生的。
    · 圆角归零 —— 系统已经把内容裁成圆角，这里再圆一次会在转角露出楔形缺口
    · 自绘交通灯隐藏 —— 原生红绿灯直接叠在标题栏左上角，画两套会重叠
-   · 贴边描边隐藏 —— 系统边框自带 1px 分隔线，叠加会变双线 */
-html[data-os="macos"] { --radius-window: 0px; }
+   · 贴边描边隐藏 —— 系统边框自带 1px 分隔线，叠加会变双线
+   · 页面给上不透明底色 —— macOS 的窗口是不透明的，页面若透明，改窗口尺寸时新露出的
+     区域会先透出窗口/网页视图的浅色底，底部闪一下白。Windows 那条路径必须保持透明
+     （圆角靠它），所以只给 macOS 上底色。 */
+html[data-os="macos"] { --radius-window: 0px; background: var(--bg); }
 html[data-os="macos"] .win-actions { display: none; }
 html[data-os="macos"] #app-shell::after { display: none; }
 
